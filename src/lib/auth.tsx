@@ -7,7 +7,7 @@ export type AppRole =
   | "advisory_officer" | "accountant" | "accounts_assistant" | "intern";
 
 interface AuthState {
-  user: User | null;
+  user: User | admin;
   session: Session | null;
   roles: AppRole[];
   loading: boolean;
