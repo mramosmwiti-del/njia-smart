@@ -1,0 +1,1 @@
+ALTER TABLE public.audit_workpapers ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'working_papers';
