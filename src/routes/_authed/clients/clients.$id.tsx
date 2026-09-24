@@ -2,7 +2,7 @@ import { createFileRoute, Link, useParams, useNavigate } from "@tanstack/react-r
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { ArrowLeft, Pencil, Trash2, Plus, Eye, EyeOff, Check, X, Pause, Play } from "lucide-react";
+import { ArrowLeft, Pencil, Trash2, Plus, Eye, EyeOff, Check, X } from "lucide-react";
 import { STATUS_COLORS, formatDate } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { ClientAssignments } from "@/components/client-assignments";
-import { TaxObligations } from "@/components/tax-obligations";
 
 export const Route = createFileRoute("/_authed/clients/$id")({ component: ClientDetail });
 
@@ -27,9 +26,10 @@ function ClientDetail() {
   const [client, setClient] = useState<any>(null);
   const [tab, setTab] = useState<typeof TABS[number]>("Overview");
   const [related, setRelated] = useState<any>({ tax: [], engagements: [], advisory: [], docs: [], tasks: [], contacts: [] });
+  const [taxPolicies, setTaxPolicies] = useState<any[]>([]);
   const [editOpen, setEditOpen] = useState(false);
   const [form, setForm] = useState<any>({});
-  const [addOpen, setAddOpen] = useState<null | "audit" | "advisory" | "document" | "task">(null);
+  const [addOpen, setAddOpen] = useState<null | "tax" | "audit" | "advisory" | "document" | "task">(null);
   const [addForm, setAddForm] = useState<any>({});
   const [addBusy, setAddBusy] = useState(false);
   const [addFile, setAddFile] = useState<File | null>(null);
@@ -49,31 +49,23 @@ function ClientDetail() {
     } else {
       setUpdaterName(null);
     }
-    const [tax, eng, adv, docs, tasks, contacts] = await Promise.all([
+    const [tax, eng, adv, docs, tasks, contacts, pols] = await Promise.all([
       supabase.from("tax_returns").select("*").eq("client_id", id).order("due_date"),
       supabase.from("engagements").select("*").eq("client_id", id).order("created_at", { ascending: false }),
       supabase.from("advisory_projects").select("*").eq("client_id", id),
       supabase.from("documents").select("*").eq("client_id", id).order("created_at", { ascending: false }),
       supabase.from("tasks").select("*").eq("client_id", id).order("created_at", { ascending: false }),
       supabase.from("client_contacts").select("*").eq("client_id", id),
+      supabase.from("tax_policies").select("*").eq("active", true).order("sort_order"),
     ]);
     setRelated({ tax: tax.data ?? [], engagements: eng.data ?? [], advisory: adv.data ?? [], docs: docs.data ?? [], tasks: tasks.data ?? [], contacts: contacts.data ?? [] });
+    setTaxPolicies((pols.data as any[]) ?? []);
   }
   useEffect(() => { load(); }, [id]);
 
   async function updateStatus(status: string) {
     const { error } = await supabase.from("clients").update({ status: status as any }).eq("id", id);
     if (error) toast.error(error.message); else { toast.success("Status updated"); load(); }
-  }
-
-  async function togglePaused() {
-    const { data: { user } } = await supabase.auth.getUser();
-    const paused = !(client as any).is_paused;
-    const { error } = await supabase.from("clients").update(
-      paused ? { is_paused: true, paused_at: new Date().toISOString(), paused_by: user?.id ?? null }
-             : { is_paused: false, paused_at: null, paused_by: null }
-    ).eq("id", id);
-    if (error) toast.error(error.message); else { toast.success(paused ? "Client paused" : "Client resumed"); load(); }
   }
 
   function openEdit() {
@@ -111,8 +103,8 @@ function ClientDetail() {
   }
 
   function openAdd(kind: NonNullable<typeof addOpen>) {
-    const today = new Date().toISOString().slice(0, 10);
     const defaults: any = {
+      tax: { return_types: [] as string[] },
       audit: { title: "", due_date: "", notes: "" },
       advisory: { title: "", description: "", due_date: "" },
       document: { title: "" },
@@ -128,7 +120,18 @@ function ClientDetail() {
     setAddBusy(true);
     const { data: { user } } = await supabase.auth.getUser();
     try {
-      if (addOpen === "audit" || addOpen === "advisory") {
+      if (addOpen === "tax") {
+        const types: string[] = (addForm.return_types ?? []).filter(Boolean);
+        if (types.length === 0) throw new Error("Select at least one tax obligation");
+        // Due dates aren't picked here — each type's own policy (cadence + due
+        // day, set under Tax > Policies) decides when the first filing is due.
+        for (const rt of types) {
+          const { error } = await supabase.rpc("set_client_tax_obligation", {
+            _client_id: id, _tax_type: rt, _active: true,
+          });
+          if (error) throw error;
+        }
+      } else if (addOpen === "audit" || addOpen === "advisory") {
         if (!addForm.title?.trim()) throw new Error("Title required");
         if (addOpen === "audit") {
           const { error } = await supabase.from("engagements").insert({
@@ -210,20 +213,15 @@ function ClientDetail() {
             <div className="flex items-center gap-2">
               <h1 className="text-2xl font-bold">{displayName}</h1>
               <span className="text-xs px-2 py-0.5 rounded-full bg-muted capitalize">{isIndividual ? "individual" : "company"}</span>
-              {(client as any).is_paused && <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">Paused</span>}
             </div>
             <div className="mt-1 text-sm text-muted-foreground space-x-3">
               {client.kra_pin && <span>KRA: <span className="font-mono">{client.kra_pin}</span></span>}
               {(client as any).id_number && <span>· ID: <span className="font-mono">{(client as any).id_number}</span></span>}
               {client.industry && <span>· {client.industry}</span>}
               {client.engagement_type && <span>· {client.engagement_type}</span>}
-              {(client as any).is_paused && (client as any).paused_at && <span>· paused {formatDate((client as any).paused_at)}</span>}
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={togglePaused}>
-              {(client as any).is_paused ? <><Play className="h-3.5 w-3.5 mr-1" />Resume</> : <><Pause className="h-3.5 w-3.5 mr-1" />Pause</>}
-            </Button>
             <select value={client.status} onChange={e=>updateStatus(e.target.value)} className={`h-9 px-3 rounded-md border bg-background text-sm capitalize ${STATUS_COLORS[client.status]}`}>
               {STATUSES.map(s => <option key={s} value={s}>{s.replace(/_/g, " ")}</option>)}
             </select>
@@ -315,7 +313,12 @@ function ClientDetail() {
           </Card>
         </div>
       )}
-      {tab === "Tax" && <TaxObligations clientId={id} />}
+      {tab === "Tax" && <TabSection label="tax obligation" onAdd={() => openAdd("tax")}><TaxList rows={related.tax} onDelete={async (taxId: string) => {
+        const { error } = await supabase.from("tax_returns").delete().eq("id", taxId);
+        if (error) { toast.error(error.message); return; }
+        toast.success("Tax obligation removed");
+        load();
+      }} empty="No tax returns" /></TabSection>}
       {tab === "Audit" && <TabSection label="audit engagement" onAdd={() => openAdd("audit")}><RelatedList rows={related.engagements.filter((e:any)=>e.type==="audit")} cols={["title","status","due_date"]} empty="No audit engagements" /></TabSection>}
       {tab === "Advisory" && <TabSection label="advisory project" onAdd={() => openAdd("advisory")}><RelatedList rows={related.advisory} cols={["title","status","due_date"]} empty="No advisory projects" /></TabSection>}
       {tab === "Documents" && <TabSection label="document" onAdd={() => openAdd("document")}><RelatedList rows={related.docs} cols={["title","version","created_at"]} empty="No documents" /></TabSection>}
@@ -357,6 +360,37 @@ function ClientDetail() {
       <Dialog open={!!addOpen} onOpenChange={(o)=>!o && setAddOpen(null)}>
         <DialogContent className="max-w-lg">
           <DialogHeader><DialogTitle className="capitalize">Add {addOpen}</DialogTitle></DialogHeader>
+          {addOpen === "tax" && (
+            <div className="space-y-3">
+              <Field label="Tax obligations * (select one or more)">
+                {taxPolicies.length === 0 ? (
+                  <p className="text-xs text-muted-foreground p-2">No active tax policies configured yet — add types under Tax &gt; Policies first.</p>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-2 border rounded-md bg-background">
+                    {taxPolicies.map(p => {
+                      const selected = (addForm.return_types ?? []).includes(p.tax_type);
+                      return (
+                        <label key={p.tax_type} title={`${p.cadence}, due day ${p.due_day}`} className={`flex items-center gap-2 px-2 py-1 rounded cursor-pointer text-xs ${selected ? "bg-primary/10 text-primary" : "hover:bg-muted"}`}>
+                          <input
+                            type="checkbox"
+                            checked={selected}
+                            onChange={e => {
+                              const cur: string[] = addForm.return_types ?? [];
+                              setAddForm({ ...addForm, return_types: e.target.checked ? [...cur, p.tax_type] : cur.filter((x: string) => x !== p.tax_type) });
+                            }}
+                          />
+                          {p.label}
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </Field>
+              <p className="text-xs text-muted-foreground">
+                Due dates aren't set here — each type follows its own tax policy (cadence and due day, managed under Tax &gt; Policies), so the first filing is scheduled automatically.
+              </p>
+            </div>
+          )}
           {(addOpen === "audit" || addOpen === "advisory") && (
             <div className="space-y-3">
               <Field label="Title *"><Input value={addForm.title ?? ""} onChange={e=>setAddForm({...addForm, title: e.target.value})} /></Field>
@@ -439,6 +473,56 @@ function RelatedList({ rows, cols, empty }: any) {
                     typeof r[c] === "string" ? <span className="capitalize">{r[c].replace(/_/g, " ")}</span> : r[c]}
                 </td>
               ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function TaxList({ rows, onDelete, empty }: any) {
+  if (!rows.length) return <div className="bg-card border rounded-lg p-8 text-center text-muted-foreground text-sm">{empty}</div>;
+  return (
+    <div className="bg-card border rounded-lg overflow-hidden">
+      <table className="w-full text-sm">
+        <thead className="bg-muted/40 text-left text-xs text-muted-foreground border-b">
+          <tr>
+            <th className="py-2 px-3">Return type</th>
+            <th className="py-2 px-3">Period end</th>
+            <th className="py-2 px-3">Due date</th>
+            <th className="py-2 px-3">Status</th>
+            <th className="py-2 px-3 w-10"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r: any) => (
+            <tr key={r.id} className="border-b last:border-0">
+              <td className="py-2 px-3 capitalize">{r.return_type?.replace(/_/g, " ")}</td>
+              <td className="py-2 px-3">{formatDate(r.period_end)}</td>
+              <td className="py-2 px-3">{formatDate(r.due_date)}</td>
+              <td className="py-2 px-3 capitalize">{r.status?.replace(/_/g, " ")}</td>
+              <td className="py-2 px-3">
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <button type="button" className="text-muted-foreground hover:text-destructive p-1" aria-label="Remove tax obligation">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Remove tax obligation?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This will remove the <strong className="capitalize">{r.return_type?.replace(/_/g, " ")}</strong> obligation from this client only. This action cannot be undone.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => onDelete(r.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Remove</AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </td>
             </tr>
           ))}
         </tbody>
