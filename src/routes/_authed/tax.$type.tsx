@@ -9,39 +9,22 @@ import { useAuth } from "@/lib/auth";
 
 export const Route = createFileRoute("/_authed/tax/$type")({ component: TaxTypePage });
 
-const TYPE_LABELS: Record<string, string> = {
-  vat: "VAT", paye: "PAYE", wht: "Withholding Tax", rental: "Rental Income",
-  tot: "Turnover Tax", corp_tax: "Corporation Tax", nil: "Nil Return",
-  mri: "MRI", nssf: "NSSF", sha: "SHA",
-  etims: "eTIMS", income_tax: "Income Tax", nita: "NITA", excise_duty: "Excise Duty",
-};
-const TYPE_CADENCE: Record<string, "monthly" | "annual"> = {
-  vat: "monthly", paye: "monthly", wht: "monthly", rental: "monthly",
-  tot: "monthly", nil: "monthly", corp_tax: "annual",
-  mri: "monthly", nssf: "monthly", sha: "monthly",
-  etims: "monthly", income_tax: "annual", nita: "monthly", excise_duty: "monthly",
-};
 const STATUSES = ["pending","in_progress","filed","overdue"];
 
-// Smart overdue: counts whole filing periods missed past the due date,
-// not raw days. A return is only "overdue" once at least one full period
-// (month or year, depending on tax type) has elapsed since the due date.
-function periodsOverdue(dueDate: string | null | undefined, cadence: "monthly" | "annual"): number {
+// Smart overdue: counts whole filing periods missed past the due date, not
+// raw days. A return is only "overdue" once at least one full period
+// (month / quarter / year, per the type's policy) has elapsed since due date.
+function periodsOverdue(dueDate: string | null | undefined, cadence: string): number {
   if (!dueDate) return 0;
   const due = new Date(dueDate);
   if (isNaN(due.getTime())) return 0;
   const now = new Date();
   if (now <= due) return 0;
-  if (cadence === "annual") {
-    let yrs = now.getFullYear() - due.getFullYear();
-    const md = now.getMonth() - due.getMonth();
-    const dd = now.getDate() - due.getDate();
-    if (md < 0 || (md === 0 && dd < 0)) yrs -= 1;
-    return Math.max(0, yrs);
-  }
   let months = (now.getFullYear() - due.getFullYear()) * 12 + (now.getMonth() - due.getMonth());
   if (now.getDate() < due.getDate()) months -= 1;
-  return Math.max(0, months);
+  months = Math.max(0, months);
+  const periodLen = cadence === "annual" ? 12 : cadence === "quarterly" ? 3 : 1;
+  return Math.floor(months / periodLen);
 }
 
 function TaxTypePage() {
@@ -52,16 +35,19 @@ function TaxTypePage() {
   const [staff, setStaff] = useState<any[]>([]);
   const [filter, setFilter] = useState({ client: "", assignee: "", status: "" });
   const [editing, setEditing] = useState<any>(null);
+  const [policy, setPolicy] = useState<any>(null);
 
   const [docCounts, setDocCounts] = useState<Record<string, number>>({});
   const [invoices, setInvoices] = useState<Record<string, any>>({});
 
   async function load() {
-    const [t, c, p] = await Promise.all([
+    const [t, c, p, pol] = await Promise.all([
       supabase.from("tax_returns").select("*, clients(company_name)").eq("return_type", type as any).order("due_date"),
       supabase.from("clients").select("id, company_name").order("company_name"),
       supabase.from("profiles").select("id, full_name"),
+      supabase.from("tax_policies").select("*").eq("tax_type", type).maybeSingle(),
     ]);
+    setPolicy(pol.data ?? null);
     const byId = new Map((p.data ?? []).map((x: any) => [x.id, x]));
     const list = t.data ?? [];
     setRows(list.map((r: any) => ({ ...r, assignee: r.assigned_to ? byId.get(r.assigned_to) ?? null : null })));
@@ -102,8 +88,8 @@ function TaxTypePage() {
     if (error) toast.error(error.message); else { toast.success("Saved"); setEditing(null); load(); }
   }
 
-  const label = TYPE_LABELS[type] ?? type.toUpperCase();
-  const cadence = TYPE_CADENCE[type] ?? "monthly";
+  const label = policy?.label ?? type.toUpperCase();
+  const cadence = policy?.cadence ?? "monthly";
   const periodWord = cadence === "annual" ? "yr" : "mo";
   const summary = {
     total: rows.length,
@@ -119,7 +105,10 @@ function TaxTypePage() {
 
       <div>
         <h1 className="text-2xl font-bold">{label} returns</h1>
-        <p className="text-sm text-muted-foreground">All clients and filings under this tax category.</p>
+        <p className="text-sm text-muted-foreground">
+          All clients and filings under this tax category.
+          {policy && <span className="capitalize"> · {policy.cadence}, due day {policy.due_day}</span>}
+        </p>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
