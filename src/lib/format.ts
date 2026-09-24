@@ -7,6 +7,21 @@ export function daysUntil(d?: string | null) {
   const diff = Math.ceil((new Date(d).getTime() - Date.now()) / 86400000);
   return diff;
 }
+// Smart overdue: counts whole filing periods missed past the due date, not
+// raw days. A return is only "overdue" once at least one full period
+// (month / quarter / year, per the type's policy) has elapsed since due date.
+export function periodsOverdue(dueDate: string | null | undefined, cadence: string): number {
+  if (!dueDate) return 0;
+  const due = new Date(dueDate);
+  if (isNaN(due.getTime())) return 0;
+  const now = new Date();
+  if (now <= due) return 0;
+  let months = (now.getFullYear() - due.getFullYear()) * 12 + (now.getMonth() - due.getMonth());
+  if (now.getDate() < due.getDate()) months -= 1;
+  months = Math.max(0, months);
+  const periodLen = cadence === "annual" ? 12 : cadence === "quarterly" ? 3 : 1;
+  return Math.floor(months / periodLen);
+}
 export const STATUS_COLORS: Record<string, string> = {
   not_started: "bg-muted text-muted-foreground",
   in_progress: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200",
