@@ -23,6 +23,10 @@ export const STATUS_COLORS: Record<string, string> = {
   low: "bg-muted text-muted-foreground",
   normal: "bg-blue-100 text-blue-800",
   high: "bg-amber-100 text-amber-800",
+  draft: "bg-muted text-muted-foreground",
+  sent: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200",
+  partial: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
+  paid: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200",
 };
 export function statusLabel(s: string) {
   return s.replace(/_/g, " ");
