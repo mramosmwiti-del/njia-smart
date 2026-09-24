@@ -53,6 +53,9 @@ function TaxTypePage() {
   const [filter, setFilter] = useState({ client: "", assignee: "", status: "" });
   const [editing, setEditing] = useState<any>(null);
 
+  const [docCounts, setDocCounts] = useState<Record<string, number>>({});
+  const [invoices, setInvoices] = useState<Record<string, any>>({});
+
   async function load() {
     const [t, c, p] = await Promise.all([
       supabase.from("tax_returns").select("*, clients(company_name)").eq("return_type", type as any).order("due_date"),
@@ -60,9 +63,21 @@ function TaxTypePage() {
       supabase.from("profiles").select("id, full_name"),
     ]);
     const byId = new Map((p.data ?? []).map((x: any) => [x.id, x]));
-    setRows((t.data ?? []).map((r: any) => ({ ...r, assignee: r.assigned_to ? byId.get(r.assigned_to) ?? null : null })));
+    const list = t.data ?? [];
+    setRows(list.map((r: any) => ({ ...r, assignee: r.assigned_to ? byId.get(r.assigned_to) ?? null : null })));
     setClients(c.data ?? []);
     setStaff(p.data ?? []);
+
+    const ids = list.map((r: any) => r.id);
+    const invoiceIds = [...new Set(list.map((r: any) => r.invoice_id).filter(Boolean))];
+    const [d, inv] = await Promise.all([
+      ids.length ? supabase.from("documents").select("tax_return_id").in("tax_return_id", ids) : Promise.resolve({ data: [] } as any),
+      invoiceIds.length ? supabase.from("invoices").select("id, invoice_number, status").in("id", invoiceIds) : Promise.resolve({ data: [] } as any),
+    ]);
+    const counts: Record<string, number> = {};
+    (d.data ?? []).forEach((row: any) => { if (row.tax_return_id) counts[row.tax_return_id] = (counts[row.tax_return_id] ?? 0) + 1; });
+    setDocCounts(counts);
+    setInvoices(Object.fromEntries((inv.data ?? []).map((i: any) => [i.id, i])));
   }
   useEffect(() => { load(); }, [type]);
 
@@ -145,10 +160,10 @@ function TaxTypePage() {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="text-left text-xs text-muted-foreground border-b bg-muted/40">
-              <tr><th className="py-2 px-3">Client</th><th>Period</th><th>Due</th><th>Status</th><th>Assignee</th><th>Team</th><th>Notes</th><th></th></tr>
+              <tr><th className="py-2 px-3">Client</th><th>Period</th><th>Due</th><th>Status</th><th>Assignee</th><th>Team</th><th>Docs</th><th>Billing</th><th>Notes</th><th></th></tr>
             </thead>
             <tbody>
-              {filtered.length === 0 && <tr><td colSpan={8} className="py-10 text-center text-muted-foreground">No returns match your filters.</td></tr>}
+              {filtered.length === 0 && <tr><td colSpan={10} className="py-10 text-center text-muted-foreground">No returns match your filters.</td></tr>}
               {filtered.map(r => {
                 const d = daysUntil(r.due_date);
                 const over = periodsOverdue(r.due_date, cadence);
@@ -168,6 +183,16 @@ function TaxTypePage() {
                     </td>
                     <td className="text-xs">{r.assignee?.full_name ?? <span className="text-muted-foreground">—</span>}</td>
                     <td className="py-2 px-3 relative"><TaxAssignees taxReturnId={r.id} compact /></td>
+                    <td className="text-xs text-muted-foreground">{docCounts[r.id] ? `${docCounts[r.id]} file${docCounts[r.id] > 1 ? "s" : ""}` : "—"}</td>
+                    <td className="text-xs">
+                      {r.invoice_id && invoices[r.invoice_id] ? (
+                        <Link to="/accounts/$id" params={{ id: r.invoice_id }} className={`px-1.5 py-0.5 rounded-full capitalize ${STATUS_COLORS[invoices[r.invoice_id].status] ?? "bg-muted"}`}>
+                          {invoices[r.invoice_id].status}
+                        </Link>
+                      ) : r.status === "filed" ? (
+                        <span className="text-muted-foreground">Unbilled</span>
+                      ) : <span className="text-muted-foreground">—</span>}
+                    </td>
                     <td className="text-xs text-muted-foreground max-w-[200px] truncate" title={r.notes || ""}>{r.notes || "—"}</td>
                     <td className="py-2 px-3 text-right whitespace-nowrap">
                       <button onClick={() => setEditing(r)} className="text-xs text-primary mr-2">Edit</button>
