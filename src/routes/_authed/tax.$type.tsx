@@ -156,9 +156,24 @@ function TaxTypePage() {
                       {over < 1 && d !== null && d >= 0 && d <= 3 && r.status !== "filed" && <span className="ml-2 text-xs text-accent">in {d}d</span>}
                     </td>
                     <td>
-                      <select value={r.status} onChange={e => setStatus(r.id, e.target.value)} className={`h-7 px-2 rounded text-xs border bg-background capitalize ${STATUS_COLORS[r.status]}`}>
-                        {STATUSES.map(s => <option key={s} value={s}>{s.replace(/_/g, " ")}</option>)}
-                      </select>
+                      <label className="inline-flex items-center gap-2 cursor-pointer" title={r.status === "filed" ? "Filed — uncheck to reopen" : "Check off once filed"}>
+                        <input
+                          type="checkbox"
+                          checked={r.status === "filed"}
+                          onChange={e => setStatus(r.id, e.target.checked ? "filed" : "pending")}
+                        />
+                        <span className={`h-6 px-2 inline-flex items-center rounded text-xs border bg-background capitalize ${STATUS_COLORS[r.status]}`}>
+                          {r.status.replace(/_/g, " ")}
+                        </span>
+                      </label>
+                      {r.status !== "filed" && (
+                        <button
+                          onClick={() => setStatus(r.id, r.status === "in_progress" ? "pending" : "in_progress")}
+                          className="block mt-1 text-[10px] text-muted-foreground hover:text-foreground"
+                        >
+                          {r.status === "in_progress" ? "Mark not started" : "Mark in progress"}
+                        </button>
+                      )}
                     </td>
                     <td className="text-xs">{r.assignee?.full_name ?? <span className="text-muted-foreground">—</span>}</td>
                     <td className="py-2 px-3 relative"><TaxAssignees taxReturnId={r.id} compact /></td>
