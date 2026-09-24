@@ -2,8 +2,9 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Save, Plus } from "lucide-react";
+import { Save, Plus, AlertTriangle, Clock, UserX, LayoutGrid } from "lucide-react";
 import { useAuth } from "@/lib/auth";
+import { daysUntil, periodsOverdue } from "@/lib/format";
 
 export const Route = createFileRoute("/_authed/tax")({
   head: () => ({
@@ -28,10 +29,13 @@ function TaxPage() {
   const [policies, setPolicies] = useState<any[]>([]);
   const [returns, setReturns] = useState<any[]>([]);
   const [clients, setClients] = useState<any[]>([]);
+  const [staff, setStaff] = useState<any[]>([]);
   const [obligations, setObligations] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyCell, setBusyCell] = useState<string | null>(null);
   const [clientFilter, setClientFilter] = useState("");
+  const [accFilter, setAccFilter] = useState<"all" | "overdue" | "duesoon" | "unassigned">("all");
+  const [manageOpen, setManageOpen] = useState(false);
   const [editingType, setEditingType] = useState<string | null>(null);
   const [editRow, setEditRow] = useState<any>({});
   const [addingPolicy, setAddingPolicy] = useState(false);
@@ -39,15 +43,17 @@ function TaxPage() {
 
   async function load() {
     setLoading(true);
-    const [p, r, c, o] = await Promise.all([
+    const [p, r, c, o, s] = await Promise.all([
       supabase.from("tax_policies").select("*").order("sort_order"),
-      supabase.from("tax_returns").select("client_id, return_type, status, due_date"),
+      supabase.from("tax_returns").select("id, client_id, return_type, status, due_date, assigned_to"),
       supabase.from("clients").select("id, company_name").order("company_name"),
       supabase.from("client_tax_obligations").select("*"),
+      supabase.from("profiles").select("id, full_name"),
     ]);
     setPolicies((p.data as any[]) ?? []);
     setReturns(r.data ?? []);
     setClients(c.data ?? []);
+    setStaff(s.data ?? []);
     setObligations((o.data as any[]) ?? []);
     setLoading(false);
   }
@@ -77,6 +83,56 @@ function TaxPage() {
     () => clients.filter(c => !clientFilter || c.company_name?.toLowerCase().includes(clientFilter.toLowerCase())),
     [clients, clientFilter]
   );
+
+  const staffMap = useMemo(() => new Map(staff.map((s: any) => [s.id, s.full_name])), [staff]);
+
+  const returnsByKey = useMemo(() => {
+    const m = new Map<string, any[]>();
+    returns.forEach((r: any) => {
+      const k = `${r.client_id}:${r.return_type}`;
+      if (!m.has(k)) m.set(k, []);
+      m.get(k)!.push(r);
+    });
+    return m;
+  }, [returns]);
+
+  // The row that matters right now for a client+type: the earliest-due open
+  // filing if one exists, otherwise the most recent filed one.
+  function currentReturn(clientId: string, taxType: string) {
+    const list = returnsByKey.get(`${clientId}:${taxType}`) ?? [];
+    if (list.length === 0) return null;
+    const open = list.filter(r => r.status !== "filed").sort((a, b) => (a.due_date ?? "").localeCompare(b.due_date ?? ""));
+    if (open.length) return open[0];
+    return [...list].sort((a, b) => (b.due_date ?? "").localeCompare(a.due_date ?? ""))[0];
+  }
+
+  // Accountability flags computed across ALL clients (not just the text
+  // search) so the summary chips always reflect the true picture.
+  const accStats = useMemo(() => {
+    const overdue = new Set<string>();
+    const duesoon = new Set<string>();
+    const unassigned = new Set<string>();
+    let overdueCells = 0, duesoonCells = 0, unassignedCells = 0;
+    clients.forEach(c => {
+      activePolicies.forEach(pol => {
+        if (!obligationMap.get(`${c.id}:${pol.tax_type}`)) return;
+        const cur = currentReturn(c.id, pol.tax_type);
+        if (!cur || cur.status === "filed") return;
+        const over = periodsOverdue(cur.due_date, pol.cadence);
+        const d = daysUntil(cur.due_date);
+        if (over >= 1) { overdue.add(c.id); overdueCells++; }
+        else if (d !== null && d >= 0 && d <= 7) { duesoon.add(c.id); duesoonCells++; }
+        if (!cur.assigned_to) { unassigned.add(c.id); unassignedCells++; }
+      });
+    });
+    return { flagged: { overdue, duesoon, unassigned }, overdueCells, duesoonCells, unassignedCells };
+  }, [clients, activePolicies, obligationMap, returnsByKey]);
+
+  const displayClients = useMemo(() => {
+    if (accFilter === "all") return filteredClients;
+    const set = accStats.flagged[accFilter];
+    return filteredClients.filter(c => set.has(c.id));
+  }, [filteredClients, accFilter, accStats]);
 
   async function toggleObligation(clientId: string, taxType: string, next: boolean) {
     const key = `${clientId}:${taxType}`;
@@ -157,7 +213,16 @@ function TaxPage() {
 
       {!loading && tab === "Checklist" && (
         <div className="space-y-3">
-          <input placeholder="Filter clients…" value={clientFilter} onChange={e => setClientFilter(e.target.value)} className="h-9 w-64 px-3 rounded-md border bg-background text-sm" />
+          <div className="flex flex-wrap gap-2 items-center">
+            <input placeholder="Filter clients…" value={clientFilter} onChange={e => setClientFilter(e.target.value)} className="h-9 w-64 px-3 rounded-md border bg-background text-sm" />
+            <div className="flex flex-wrap gap-2 ml-auto">
+              <ChecklistChip active={accFilter === "all"} onClick={() => setAccFilter("all")} icon={LayoutGrid} label="All clients" value={clients.length} tone="muted" />
+              <ChecklistChip active={accFilter === "overdue"} onClick={() => setAccFilter("overdue")} icon={AlertTriangle} label="Overdue" value={accStats.flagged.overdue.size} tone="destructive" />
+              <ChecklistChip active={accFilter === "duesoon"} onClick={() => setAccFilter("duesoon")} icon={Clock} label="Due ≤7 days" value={accStats.flagged.duesoon.size} tone="amber" />
+              <ChecklistChip active={accFilter === "unassigned"} onClick={() => setAccFilter("unassigned")} icon={UserX} label="Unassigned" value={accStats.flagged.unassigned.size} tone="amber" />
+            </div>
+          </div>
+
           <div className="bg-card border rounded-lg overflow-auto">
             <table className="text-sm min-w-full">
               <thead className="bg-muted/40 text-left text-xs text-muted-foreground border-b">
@@ -167,23 +232,34 @@ function TaxPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredClients.length === 0 && (
+                {displayClients.length === 0 && (
                   <tr><td colSpan={activePolicies.length + 1} className="py-8 text-center text-muted-foreground">No clients match.</td></tr>
                 )}
-                {filteredClients.map(c => (
+                {displayClients.map(c => (
                   <tr key={c.id} className="border-b last:border-0 hover:bg-muted/20">
                     <td className="py-1.5 px-3 font-medium sticky left-0 bg-card whitespace-nowrap">{c.company_name}</td>
-                    {activePolicies.map(p => {
-                      const key = `${c.id}:${p.tax_type}`;
-                      const checked = obligationMap.get(key) ?? false;
+                    {activePolicies.map(pol => {
+                      const key = `${c.id}:${pol.tax_type}`;
+                      const obligated = obligationMap.get(key) ?? false;
+                      const cur = obligated ? currentReturn(c.id, pol.tax_type) : null;
                       return (
-                        <td key={p.tax_type} className="py-1.5 px-2 text-center">
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            disabled={busyCell === key}
-                            onChange={e => toggleObligation(c.id, p.tax_type, e.target.checked)}
-                          />
+                        <td key={pol.tax_type} className="py-1.5 px-2 text-center align-middle">
+                          {!obligated ? (
+                            isAdmin ? (
+                              <button
+                                title={`Add ${pol.label} obligation`}
+                                disabled={busyCell === key}
+                                onClick={() => toggleObligation(c.id, pol.tax_type, true)}
+                                className="h-6 w-6 inline-flex items-center justify-center rounded-full text-muted-foreground/50 hover:text-primary hover:bg-primary/10"
+                              ><Plus className="h-3.5 w-3.5" /></button>
+                            ) : <span className="text-muted-foreground/40">—</span>
+                          ) : !cur ? (
+                            <span className="text-xs text-muted-foreground">Scheduling…</span>
+                          ) : (
+                            <Link to="/tax/$type" params={{ type: pol.tax_type }} search={{ client: c.id }} className="block hover:opacity-80">
+                              <ChecklistCell row={cur} cadence={pol.cadence} assigneeName={cur.assigned_to ? staffMap.get(cur.assigned_to) : null} />
+                            </Link>
+                          )}
                         </td>
                       );
                     })}
@@ -192,7 +268,52 @@ function TaxPage() {
               </tbody>
             </table>
           </div>
-          <p className="text-xs text-muted-foreground">Checking a box schedules that client's first open filing. Unchecking stops future auto-renewal — filings already open aren't removed.</p>
+          <p className="text-xs text-muted-foreground">Each cell shows the filing that currently needs attention for that client — its status, due date and who owns it. Click a cell to open that return.</p>
+
+          {isAdmin && (
+            <div className="border rounded-lg">
+              <button onClick={() => setManageOpen(o => !o)} className="w-full flex items-center justify-between px-3 py-2 text-sm font-medium">
+                Manage obligations
+                <span className="text-xs text-muted-foreground">{manageOpen ? "Hide" : "Show"}</span>
+              </button>
+              {manageOpen && (
+                <div className="p-3 pt-0 space-y-2">
+                  <p className="text-xs text-muted-foreground">Turn a tax type on or off per client. Checking a box schedules that client's first open filing; unchecking stops future auto-renewal — filings already open aren't removed.</p>
+                  <div className="overflow-auto border rounded-lg">
+                    <table className="text-sm min-w-full">
+                      <thead className="bg-muted/40 text-left text-xs text-muted-foreground border-b">
+                        <tr>
+                          <th className="py-2 px-3 sticky left-0 bg-muted/40 z-10">Client</th>
+                          {activePolicies.map(p => <th key={p.tax_type} className="py-2 px-2 text-center whitespace-nowrap font-medium">{p.label}</th>)}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredClients.map(c => (
+                          <tr key={c.id} className="border-b last:border-0 hover:bg-muted/20">
+                            <td className="py-1.5 px-3 font-medium sticky left-0 bg-card whitespace-nowrap">{c.company_name}</td>
+                            {activePolicies.map(p => {
+                              const key = `${c.id}:${p.tax_type}`;
+                              const checked = obligationMap.get(key) ?? false;
+                              return (
+                                <td key={p.tax_type} className="py-1.5 px-2 text-center">
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    disabled={busyCell === key}
+                                    onChange={e => toggleObligation(c.id, p.tax_type, e.target.checked)}
+                                  />
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -274,6 +395,57 @@ function TaxPage() {
             )
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+function ChecklistChip({ active, onClick, icon: Icon, label, value, tone }: {
+  active: boolean; onClick: () => void; icon: any; label: string; value: number; tone: "muted" | "destructive" | "amber";
+}) {
+  const toneClasses = tone === "destructive"
+    ? (active ? "bg-destructive text-destructive-foreground border-destructive" : "border-destructive/30 text-destructive hover:bg-destructive/10")
+    : tone === "amber"
+    ? (active ? "bg-amber-500 text-white border-amber-500" : "border-amber-400/50 text-amber-700 dark:text-amber-300 hover:bg-amber-500/10")
+    : (active ? "bg-primary text-primary-foreground border-primary" : "border-muted-foreground/30 text-muted-foreground hover:bg-muted");
+  return (
+    <button onClick={onClick} className={`h-8 px-2.5 rounded-full border text-xs inline-flex items-center gap-1.5 transition-colors ${toneClasses}`}>
+      <Icon className="h-3.5 w-3.5" /> {label} <span className="font-semibold">{value}</span>
+    </button>
+  );
+}
+
+function ChecklistCell({ row, cadence, assigneeName }: { row: any; cadence: string; assigneeName?: string | null }) {
+  const over = periodsOverdue(row.due_date, cadence);
+  const d = daysUntil(row.due_date);
+  const filed = row.status === "filed";
+  const statusClass = filed
+    ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200"
+    : over >= 1
+    ? "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200"
+    : row.status === "in_progress"
+    ? "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200"
+    : "bg-muted text-muted-foreground";
+  const initials = assigneeName ? assigneeName.split(" ").map((s: string) => s[0]).slice(0, 2).join("").toUpperCase() : null;
+
+  return (
+    <div className="inline-flex flex-col items-center gap-0.5">
+      <span className={`text-[11px] px-2 py-0.5 rounded-full capitalize ${statusClass}`}>
+        {filed ? "Filed" : row.status.replace(/_/g, " ")}
+      </span>
+      {!filed && (
+        <span className={`text-[10px] ${over >= 1 ? "text-destructive font-medium" : d !== null && d <= 7 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}`}>
+          {over >= 1 ? `${over}× overdue` : d !== null ? (d < 0 ? "overdue" : d === 0 ? "due today" : `due in ${d}d`) : "no due date"}
+        </span>
+      )}
+      {!filed && (
+        initials ? (
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground" title={assigneeName ?? undefined}>{initials}</span>
+        ) : (
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-100 inline-flex items-center gap-0.5">
+            <UserX className="h-2.5 w-2.5" /> Unassigned
+          </span>
+        )
       )}
     </div>
   );
