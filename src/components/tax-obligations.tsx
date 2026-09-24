@@ -12,13 +12,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { useAuth } from "@/lib/auth";
 
-const TAX_TYPES = ["vat","paye","corp_tax","tot","wht","rental","nil","mri","nssf","sha","etims","income_tax","nita","excise_duty"];
-const TYPE_LABELS: Record<string, string> = {
-  vat: "VAT", paye: "PAYE", wht: "Withholding Tax", rental: "Rental Income",
-  tot: "Turnover Tax", corp_tax: "Corporation Tax", nil: "Nil Return",
-  mri: "MRI", nssf: "NSSF", sha: "SHA", etims: "eTIMS",
-  income_tax: "Income Tax", nita: "NITA", excise_duty: "Excise Duty",
-};
 const STATUSES = ["pending", "in_progress", "filed"];
 
 function money(n: number) {
@@ -28,6 +21,7 @@ function money(n: number) {
 export function TaxObligations({ clientId }: { clientId: string }) {
   const { isAdmin } = useAuth();
   const [rows, setRows] = useState<any[]>([]);
+  const [policies, setPolicies] = useState<any[]>([]);
   const [docs, setDocs] = useState<Record<string, any[]>>({});
   const [invoices, setInvoices] = useState<Record<string, any>>({});
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -42,9 +36,13 @@ export function TaxObligations({ clientId }: { clientId: string }) {
   const [billBusy, setBillBusy] = useState(false);
 
   async function load() {
-    const { data: tax } = await supabase.from("tax_returns").select("*").eq("client_id", clientId).order("due_date");
+    const [{ data: tax }, { data: pol }] = await Promise.all([
+      supabase.from("tax_returns").select("*").eq("client_id", clientId).order("due_date"),
+      supabase.from("tax_policies").select("*").order("sort_order"),
+    ]);
     const list = tax ?? [];
     setRows(list);
+    setPolicies(pol ?? []);
     const ids = list.map((r: any) => r.id);
     const invoiceIds = [...new Set(list.map((r: any) => r.invoice_id).filter(Boolean))];
     const [d, inv] = await Promise.all([
@@ -76,6 +74,10 @@ export function TaxObligations({ clientId }: { clientId: string }) {
   }, [rows]);
 
   const types = Object.keys(byType).sort();
+  const activeTypes = useMemo(() => policies.filter(p => p.active), [policies]);
+  function typeLabel(t: string) {
+    return policies.find(p => p.tax_type === t)?.label ?? t;
+  }
 
   async function setStatus(id: string, status: string) {
     const { error } = await supabase.from("tax_returns").update({ status }).eq("id", id);
@@ -128,7 +130,7 @@ export function TaxObligations({ clientId }: { clientId: string }) {
   }
 
   function openBill(row: any) {
-    setBillForm({ amount: 0, description: `${TYPE_LABELS[row.return_type] ?? row.return_type} filing — period ${formatDate(row.period_end)}` });
+    setBillForm({ amount: 0, description: `${typeLabel(row.return_type)} filing — period ${formatDate(row.period_end)}` });
     setBillFor(row);
   }
   async function submitBill() {
@@ -178,7 +180,7 @@ export function TaxObligations({ clientId }: { clientId: string }) {
         return (
           <div key={type} className="bg-card border rounded-lg overflow-hidden">
             <div className="px-4 py-3 flex items-center justify-between border-b bg-muted/30">
-              <div className="font-medium text-sm">{TYPE_LABELS[type] ?? type}</div>
+              <div className="font-medium text-sm">{typeLabel(type)}</div>
               <div className="text-xs text-muted-foreground">{g.history.length} filed · {g.active.length} open</div>
             </div>
 
@@ -205,7 +207,7 @@ export function TaxObligations({ clientId }: { clientId: string }) {
                         <AlertDialogContent>
                           <AlertDialogHeader>
                             <AlertDialogTitle>Remove this obligation?</AlertDialogTitle>
-                            <AlertDialogDescription>This removes the pending {TYPE_LABELS[type] ?? type} filing for this period. Cannot be undone.</AlertDialogDescription>
+                            <AlertDialogDescription>This removes the pending {typeLabel(type)} filing for this period. Cannot be undone.</AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
                             <AlertDialogCancel>Cancel</AlertDialogCancel>
@@ -272,7 +274,7 @@ export function TaxObligations({ clientId }: { clientId: string }) {
             <div className="sm:col-span-2">
               <Label className="text-xs">Tax obligations * (select one or more)</Label>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-2 mt-1 border rounded-md bg-background">
-                {TAX_TYPES.map(t => {
+                {activeTypes.map(p => { const t = p.tax_type;
                   const selected = (addForm.return_types ?? []).includes(t);
                   return (
                     <label key={t} className={`flex items-center gap-2 px-2 py-1 rounded cursor-pointer text-xs ${selected ? "bg-primary/10 text-primary" : "hover:bg-muted"}`}>
@@ -280,7 +282,7 @@ export function TaxObligations({ clientId }: { clientId: string }) {
                         const cur: string[] = addForm.return_types ?? [];
                         setAddForm({ ...addForm, return_types: e.target.checked ? [...cur, t] : cur.filter(x => x !== t) });
                       }} />
-                      {TYPE_LABELS[t] ?? t}
+                      {typeLabel(t)}
                     </label>
                   );
                 })}
@@ -303,7 +305,7 @@ export function TaxObligations({ clientId }: { clientId: string }) {
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>Attach filed document</DialogTitle></DialogHeader>
           <p className="text-xs text-muted-foreground">
-            {uploadFor && `${TYPE_LABELS[uploadFor.return_type] ?? uploadFor.return_type} · period ending ${formatDate(uploadFor.period_end)}`}
+            {uploadFor && `${typeLabel(uploadFor.return_type)} · period ending ${formatDate(uploadFor.period_end)}`}
           </p>
           <Input type="file" onChange={e => setUploadFile(e.target.files?.[0] ?? null)} />
           <DialogFooter>
