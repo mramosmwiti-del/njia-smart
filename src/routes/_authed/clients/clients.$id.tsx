@@ -2,7 +2,7 @@ import { createFileRoute, Link, useParams, useNavigate } from "@tanstack/react-r
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { ArrowLeft, Pencil, Trash2, Plus, Eye, EyeOff, Check, X } from "lucide-react";
+import { ArrowLeft, Pencil, Trash2, Plus, Eye, EyeOff, Check, X, Pause, Play } from "lucide-react";
 import { STATUS_COLORS, formatDate } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -64,6 +64,16 @@ function ClientDetail() {
   async function updateStatus(status: string) {
     const { error } = await supabase.from("clients").update({ status: status as any }).eq("id", id);
     if (error) toast.error(error.message); else { toast.success("Status updated"); load(); }
+  }
+
+  async function togglePaused() {
+    const { data: { user } } = await supabase.auth.getUser();
+    const paused = !(client as any).is_paused;
+    const { error } = await supabase.from("clients").update(
+      paused ? { is_paused: true, paused_at: new Date().toISOString(), paused_by: user?.id ?? null }
+             : { is_paused: false, paused_at: null, paused_by: null }
+    ).eq("id", id);
+    if (error) toast.error(error.message); else { toast.success(paused ? "Client paused" : "Client resumed"); load(); }
   }
 
   function openEdit() {
@@ -200,15 +210,20 @@ function ClientDetail() {
             <div className="flex items-center gap-2">
               <h1 className="text-2xl font-bold">{displayName}</h1>
               <span className="text-xs px-2 py-0.5 rounded-full bg-muted capitalize">{isIndividual ? "individual" : "company"}</span>
+              {(client as any).is_paused && <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">Paused</span>}
             </div>
             <div className="mt-1 text-sm text-muted-foreground space-x-3">
               {client.kra_pin && <span>KRA: <span className="font-mono">{client.kra_pin}</span></span>}
               {(client as any).id_number && <span>· ID: <span className="font-mono">{(client as any).id_number}</span></span>}
               {client.industry && <span>· {client.industry}</span>}
               {client.engagement_type && <span>· {client.engagement_type}</span>}
+              {(client as any).is_paused && (client as any).paused_at && <span>· paused {formatDate((client as any).paused_at)}</span>}
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={togglePaused}>
+              {(client as any).is_paused ? <><Play className="h-3.5 w-3.5 mr-1" />Resume</> : <><Pause className="h-3.5 w-3.5 mr-1" />Pause</>}
+            </Button>
             <select value={client.status} onChange={e=>updateStatus(e.target.value)} className={`h-9 px-3 rounded-md border bg-background text-sm capitalize ${STATUS_COLORS[client.status]}`}>
               {STATUSES.map(s => <option key={s} value={s}>{s.replace(/_/g, " ")}</option>)}
             </select>
