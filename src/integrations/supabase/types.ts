@@ -356,6 +356,7 @@ export type Database = {
       }
       client_assignments: {
         Row: {
+          assigned_by: string | null
           client_id: string
           created_at: string
           id: string
@@ -363,6 +364,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          assigned_by?: string | null
           client_id: string
           created_at?: string
           id?: string
@@ -370,6 +372,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          assigned_by?: string | null
           client_id?: string
           created_at?: string
           id?: string
