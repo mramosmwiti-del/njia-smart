@@ -13,7 +13,7 @@ export const Route = createFileRoute("/_authed/clients/")({ component: ClientsLi
 const STATUSES = ["not_started","in_progress","waiting_for_documents","under_review","filed","completed","overdue","urgent"];
 
 function ClientsList() {
-  const { isAdmin } = useAuth();
+  const { isAdmin, canCreate, canDelete } = useAuth();
   const [rows, setRows] = useState<any[]>([]);
   const [assignByClient, setAssignByClient] = useState<Record<string, string[]>>({});
   const [q, setQ] = useState("");
@@ -107,24 +107,28 @@ function ClientsList() {
           <p className="text-sm text-muted-foreground">{rows.length} total</p>
         </div>
         <div className="flex gap-2">
-          <CsvImport
-            table="clients"
-            fields={[
-              { key:"company_name", label:"Company name", required:true },
-              { key:"kra_pin", label:"KRA PIN" },
-              { key:"reg_number", label:"Registration #" },
-              { key:"industry", label:"Industry" },
-              { key:"email", label:"Email" },
-              { key:"phone", label:"Phone" },
-              { key:"engagement_type", label:"Engagement type" },
-              { key:"notes", label:"Notes" },
-            ]}
-            enrich={(r)=>({ created_by: r._uid })}
-            onDone={load}
-          />
-          <button onClick={() => setOpen(true)} className="h-9 px-3 rounded-md bg-primary text-primary-foreground text-sm font-medium inline-flex items-center gap-2">
-            <Plus className="h-4 w-4" /> New client
-          </button>
+          {canCreate("clients") && (
+            <>
+              <CsvImport
+                table="clients"
+                fields={[
+                  { key:"company_name", label:"Company name", required:true },
+                  { key:"kra_pin", label:"KRA PIN" },
+                  { key:"reg_number", label:"Registration #" },
+                  { key:"industry", label:"Industry" },
+                  { key:"email", label:"Email" },
+                  { key:"phone", label:"Phone" },
+                  { key:"engagement_type", label:"Engagement type" },
+                  { key:"notes", label:"Notes" },
+                ]}
+                enrich={(r)=>({ created_by: r._uid })}
+                onDone={load}
+              />
+              <button onClick={() => setOpen(true)} className="h-9 px-3 rounded-md bg-primary text-primary-foreground text-sm font-medium inline-flex items-center gap-2">
+                <Plus className="h-4 w-4" /> New client
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -214,7 +218,7 @@ function ClientsList() {
                       <button onClick={()=>setPaused([r.id], !r.is_paused)} title={r.is_paused ? "Resume" : "Pause"} className="text-muted-foreground hover:text-foreground p-1">
                         {r.is_paused ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
                       </button>
-                      {isAdmin && (
+                      {canDelete("clients", { createdBy: r.created_by }) && (
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
                             <button className="text-muted-foreground hover:text-destructive p-1" aria-label="Delete client"><Trash2 className="h-3.5 w-3.5" /></button>
