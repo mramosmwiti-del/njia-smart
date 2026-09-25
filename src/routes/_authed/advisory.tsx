@@ -25,15 +25,14 @@ export const Route = createFileRoute("/_authed/advisory")({
 const STATUSES = ["not_started", "in_progress", "under_review", "completed"];
 
 const STAGES = [
-  { key: "kickoff", label: "Kick-off" },
-  { key: "information", label: "Information gathering" },
-  { key: "analysis", label: "Analysis & fieldwork" },
-  { key: "draft", label: "Draft deliverable" },
-  { key: "review", label: "Internal review" },
-  { key: "signoff", label: "Client sign-off" },
+  { key: "onboarding", label: "Onboarding" },
+  { key: "evaluation", label: "Evaluation & Analysis" },
+  { key: "guidance", label: "Guidance" },
+  { key: "invoicing", label: "Invoicing" },
+  { key: "action", label: "Action" },
   { key: "closed", label: "Closed" },
 ];
-const stageLabel = (k?: string | null) => STAGES.find(s => s.key === k)?.label ?? "Kick-off";
+const stageLabel = (k?: string | null) => STAGES.find(s => s.key === k)?.label ?? "Onboarding";
 const MILESTONE_SELECT = "id, title, due_date, done, notes, assigned_to, stage, completed_at, verified, verified_by, verified_at";
 const PROJECT_SELECT = `*, clients(company_name), advisory_milestones(${MILESTONE_SELECT})`;
 
@@ -54,7 +53,7 @@ function AdvisoryPage() {
   const [msDue, setMsDue] = useState("");
   const [msNotes, setMsNotes] = useState("");
   const [msAssignee, setMsAssignee] = useState("");
-  const [msStage, setMsStage] = useState("kickoff");
+  const [msStage, setMsStage] = useState("onboarding");
   const [editingMs, setEditingMs] = useState<string | null>(null);
   const [editMsData, setEditMsData] = useState<any>({});
   const [milestoneDocs, setMilestoneDocs] = useState<Record<string, any[]>>({});
@@ -123,7 +122,7 @@ function AdvisoryPage() {
   async function reopenProject() {
     if (!milestoneEditor) return;
     const { error } = await supabase.from("advisory_projects").update({
-      stage: "review", status: "in_progress", closed_at: null, closed_by: null,
+      stage: "action", status: "in_progress", closed_at: null, closed_by: null,
     } as any).eq("id", milestoneEditor.id);
     if (error) toast.error(error.message); else { toast.success("Reopened"); reloadEditor(); }
   }
@@ -158,7 +157,7 @@ function AdvisoryPage() {
   }
   function startEditMs(m: any) {
     setEditingMs(m.id);
-    setEditMsData({ title: m.title, due_date: m.due_date ?? "", notes: m.notes ?? "", assigned_to: m.assigned_to ?? "", stage: m.stage ?? "kickoff" });
+    setEditMsData({ title: m.title, due_date: m.due_date ?? "", notes: m.notes ?? "", assigned_to: m.assigned_to ?? "", stage: m.stage ?? "onboarding" });
   }
   async function saveEditMs() {
     if (!editingMs) return;
@@ -241,7 +240,7 @@ function AdvisoryPage() {
       <div className="flex justify-between items-center">
         <div><h1 className="text-2xl font-bold">Advisory</h1><p className="text-sm text-muted-foreground">Consultancy engagements tracked from kick-off to close-out.</p></div>
         {tab === "projects" && (
-        <button onClick={() => setDialog({ mode: "new", data: { client_id: "", title: "", description: "", start_date: "", due_date: "", status: "not_started", stage: "kickoff" } })} className="h-9 px-3 rounded-md bg-primary text-primary-foreground text-sm inline-flex items-center gap-2"><Plus className="h-4 w-4" /> New project</button>
+        <button onClick={() => setDialog({ mode: "new", data: { client_id: "", title: "", description: "", start_date: "", due_date: "", status: "not_started", stage: "onboarding" } })} className="h-9 px-3 rounded-md bg-primary text-primary-foreground text-sm inline-flex items-center gap-2"><Plus className="h-4 w-4" /> New project</button>
         )}
       </div>
 
@@ -264,7 +263,7 @@ function AdvisoryPage() {
           const done = ms.filter((m: any) => m.done).length;
           const verified = ms.filter((m: any) => m.verified).length;
           const pct = ms.length ? Math.round((done / ms.length) * 100) : 0;
-          const stageIdx = STAGES.findIndex(s => s.key === (r.stage ?? "kickoff"));
+          const stageIdx = STAGES.findIndex(s => s.key === (r.stage ?? "onboarding"));
           return (
             <div key={r.id} className="bg-card border rounded-lg p-4 hover:border-primary/50 transition">
               <div className="flex justify-between items-start gap-2">
@@ -276,7 +275,7 @@ function AdvisoryPage() {
               </div>
               <div className="mt-2 flex items-center gap-1.5 text-[11px]">
                 <span className={`px-2 py-0.5 rounded-full ${r.stage === "closed" ? "bg-muted text-muted-foreground" : "bg-primary/10 text-primary"}`}>
-                  {r.stage === "closed" ? "Closed" : `Stage ${stageIdx + 1}/6 · ${stageLabel(r.stage)}`}
+                  {r.stage === "closed" ? "Closed" : `Stage ${stageIdx + 1}/5 · ${stageLabel(r.stage)}`}
                 </span>
               </div>
               {r.description && <p className="text-sm text-muted-foreground mt-2 line-clamp-2">{r.description}</p>}
@@ -320,7 +319,7 @@ function AdvisoryPage() {
               <select value={dialog.data.status} onChange={e => setDialog({ ...dialog, data: { ...dialog.data, status: e.target.value } })} className="h-9 px-3 rounded-md border bg-background text-sm capitalize">
                 {STATUSES.map(s => <option key={s} value={s}>{s.replace(/_/g, " ")}</option>)}
               </select>
-              <select value={dialog.data.stage ?? "kickoff"} onChange={e => setDialog({ ...dialog, data: { ...dialog.data, stage: e.target.value } })} className="h-9 px-3 rounded-md border bg-background text-sm">
+              <select value={dialog.data.stage ?? "onboarding"} onChange={e => setDialog({ ...dialog, data: { ...dialog.data, stage: e.target.value } })} className="h-9 px-3 rounded-md border bg-background text-sm">
                 {STAGES.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
               </select>
             </div>
@@ -353,8 +352,8 @@ function AdvisoryPage() {
               <div className="text-xs font-medium text-muted-foreground mb-2">Progress stage</div>
               <div className="flex flex-wrap gap-1.5">
                 {STAGES.filter(s => s.key !== "closed").map((s, i) => {
-                  const current = (milestoneEditor.stage ?? "kickoff") === s.key;
-                  const passed = STAGES.findIndex(x => x.key === (milestoneEditor.stage ?? "kickoff")) > i;
+                  const current = (milestoneEditor.stage ?? "onboarding") === s.key;
+                  const passed = STAGES.findIndex(x => x.key === (milestoneEditor.stage ?? "onboarding")) > i;
                   return (
                     <button key={s.key} disabled={editorClosed} onClick={() => setStage(s.key)}
                       className={`text-xs px-2.5 py-1 rounded-full border transition disabled:opacity-50 ${current ? "bg-primary text-primary-foreground border-primary" : passed ? "bg-accent/20 border-accent/40" : "bg-background hover:border-primary/50"}`}>
