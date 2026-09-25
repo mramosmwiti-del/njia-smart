@@ -19,7 +19,7 @@ const STATUSES = ["pending","in_progress","filed","overdue"];
 function TaxTypePage() {
   const { type } = useParams({ from: "/_authed/tax/$type" });
   const search = Route.useSearch();
-  const { isAdmin } = useAuth();
+  const { isAdmin, canDelete } = useAuth();
   const [rows, setRows] = useState<any[]>([]);
   const [clients, setClients] = useState<any[]>([]);
   const [staff, setStaff] = useState<any[]>([]);
@@ -190,7 +190,7 @@ function TaxTypePage() {
                     <td className="text-xs text-muted-foreground max-w-[200px] truncate" title={r.notes || ""}>{r.notes || "—"}</td>
                     <td className="py-2 px-3 text-right whitespace-nowrap">
                       <button onClick={() => setEditing(r)} className="text-xs text-primary mr-2">Edit</button>
-                      {isAdmin && (
+                      {canDelete("tax", { createdBy: r.created_by }) && (
                         <button onClick={() => remove(r.id)} className="text-muted-foreground hover:text-destructive" title="Remove">
                           <Trash2 className="h-3.5 w-3.5 inline" />
                         </button>

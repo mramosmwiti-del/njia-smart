@@ -11,7 +11,7 @@ export const Route = createFileRoute("/_authed/tasks")({ component: TasksPage })
 const EMPTY = { id: "", title:"", description:"", client_id:"", assigned_to:"", priority:"normal", due_date:"", status:"todo" };
 
 function TasksPage() {
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, canCreate, canDelete } = useAuth();
   const [rows, setRows] = useState<any[]>([]);
   const [clients, setClients] = useState<any[]>([]);
   const [staff, setStaff] = useState<any[]>([]);
@@ -83,7 +83,9 @@ function TasksPage() {
     <div className="space-y-4">
       <div className="flex flex-wrap justify-between items-center gap-3">
         <div><h1 className="text-2xl font-bold">Tasks</h1><p className="text-sm text-muted-foreground">Assign, transfer and collaborate on work.</p></div>
-        <button onClick={openNew} className="h-9 px-3 rounded-md bg-primary text-primary-foreground text-sm inline-flex items-center gap-2"><Plus className="h-4 w-4" /> New task</button>
+        {canCreate("tasks") && (
+          <button onClick={openNew} className="h-9 px-3 rounded-md bg-primary text-primary-foreground text-sm inline-flex items-center gap-2"><Plus className="h-4 w-4" /> New task</button>
+        )}
       </div>
       <div className="inline-flex border rounded-md p-0.5 bg-muted">
         {(["all","mine"] as const).map(t => (
@@ -133,7 +135,7 @@ function TasksPage() {
                     <td className="pr-2 text-right space-x-1 whitespace-nowrap">
                       <button onClick={()=>setDetailId(t.id)} title="Comments" className="p-1 hover:text-primary"><MessageSquare className="h-3.5 w-3.5" /></button>
                       <button onClick={()=>openEdit(t)} title="Edit" className="p-1 hover:text-primary"><Pencil className="h-3.5 w-3.5" /></button>
-                      {(isAdmin || t.created_by === user?.id) && <button onClick={()=>remove(t.id)} title="Delete" className="p-1 hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>}
+                      {canDelete("tasks", { createdBy: t.created_by }) && <button onClick={()=>remove(t.id)} title="Delete" className="p-1 hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>}
                     </td>
                   </tr>
                 );

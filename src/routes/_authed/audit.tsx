@@ -12,7 +12,7 @@ import { useAuth } from "@/lib/auth";
 export const Route = createFileRoute("/_authed/audit")({ component: AuditPage });
 
 function AuditPage() {
-  const { isAdmin } = useAuth();
+  const { user, isAdmin, canCreate, canDelete } = useAuth();
   const [tab, setTab] = useState<"engagements" | "clients" | "billing" | "documents">("engagements");
   const [rows, setRows] = useState<any[]>([]);
   const [clients, setClients] = useState<any[]>([]);
@@ -54,6 +54,7 @@ function AuditPage() {
       due_date: form.due_date || null,
       notes: form.notes,
       type: "audit" as const,
+      created_by: user?.id,
     });
     if (error) toast.error(error.message);
     else { toast.success("Audit engagement created"); setOpen(false); setNewClientName(""); setForm({ client_id:"", title:"", start_date:"", due_date:"", notes:"" }); load(); }
@@ -105,7 +106,7 @@ function AuditPage() {
           <h1 className="text-2xl font-bold">Audit</h1>
           <p className="text-sm text-muted-foreground">Engagements aligned with IFRS, ISA and the Kenyan Companies Act.</p>
         </div>
-        {tab === "engagements" && (
+        {tab === "engagements" && canCreate("audit") && (
         <div className="flex gap-2">
           <CsvImport
             table="engagements"
@@ -119,7 +120,9 @@ function AuditPage() {
             transform={(r)=>({ ...r, type: "audit" })}
             onDone={load}
           />
-          <button onClick={()=>setOpen(true)} className="h-9 px-3 rounded-md bg-primary text-primary-foreground text-sm inline-flex items-center gap-2"><Plus className="h-4 w-4" /> New audit</button>
+          {canCreate("audit") && (
+            <button onClick={()=>setOpen(true)} className="h-9 px-3 rounded-md bg-primary text-primary-foreground text-sm inline-flex items-center gap-2"><Plus className="h-4 w-4" /> New audit</button>
+          )}
         </div>
         )}
       </div>
@@ -160,7 +163,7 @@ function AuditPage() {
                 <button onClick={()=>setEditRow({ ...r })} className="text-muted-foreground hover:text-primary p-1" title="Edit engagement">
                   <Pencil className="h-4 w-4" />
                 </button>
-                {isAdmin && (
+                {canDelete("audit", { createdBy: r.created_by }) && (
                   <button onClick={()=>remove(r.id)} className="text-muted-foreground hover:text-destructive p-1" title="Remove engagement">
                     <Trash2 className="h-4 w-4" />
                   </button>
