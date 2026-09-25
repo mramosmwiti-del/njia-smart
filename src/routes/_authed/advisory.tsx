@@ -127,6 +127,17 @@ function AdvisoryPage() {
     if (error) toast.error(error.message); else { toast.success("Reopened"); reloadEditor(); }
   }
 
+  async function notifyMilestoneAssignee(assigneeId: string, title: string) {
+    if (!assigneeId || assigneeId === user?.id) return;
+    const clientName = milestoneEditor?.clients?.company_name;
+    await supabase.from("notifications").insert({
+      user_id: assigneeId, type: "milestone_assigned",
+      title: "Assigned to a task",
+      body: clientName ? `${title} — Advisory (${clientName})` : `${title} — Advisory`,
+      link: `/advisory`,
+    });
+  }
+
   async function addMilestone() {
     if (!milestoneEditor || !msTitle.trim()) return;
     const { error } = await supabase.from("advisory_milestones").insert({
@@ -134,7 +145,10 @@ function AdvisoryPage() {
       notes: msNotes || null, assigned_to: msAssignee || null, stage: msStage,
     } as any);
     if (error) toast.error(error.message);
-    else { setMsTitle(""); setMsDue(""); setMsNotes(""); setMsAssignee(""); reloadEditor(); }
+    else {
+      if (msAssignee) await notifyMilestoneAssignee(msAssignee, msTitle.trim());
+      setMsTitle(""); setMsDue(""); setMsNotes(""); setMsAssignee(""); reloadEditor();
+    }
   }
   async function toggleMilestone(id: string, done: boolean) {
     await supabase.from("advisory_milestones").update({
@@ -161,12 +175,18 @@ function AdvisoryPage() {
   }
   async function saveEditMs() {
     if (!editingMs) return;
+    const original = milestoneEditor?.advisory_milestones?.find((m: any) => m.id === editingMs);
     const { error } = await supabase.from("advisory_milestones").update({
       title: editMsData.title, due_date: editMsData.due_date || null,
       notes: editMsData.notes || null, assigned_to: editMsData.assigned_to || null, stage: editMsData.stage || null,
     } as any).eq("id", editingMs);
     if (error) toast.error(error.message);
-    else { setEditingMs(null); reloadEditor(); }
+    else {
+      if (editMsData.assigned_to && editMsData.assigned_to !== original?.assigned_to) {
+        await notifyMilestoneAssignee(editMsData.assigned_to, editMsData.title);
+      }
+      setEditingMs(null); reloadEditor();
+    }
   }
 
   async function loadMilestoneDocs(milestoneId: string) {
