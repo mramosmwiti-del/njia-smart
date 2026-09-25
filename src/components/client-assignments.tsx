@@ -2,10 +2,12 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { UserPlus, X, Users } from "lucide-react";
+import { useAuth } from "@/lib/auth";
 
 type Assn = { id: string; user_id: string; role_on_engagement: string | null; profile?: { full_name: string | null } | null };
 
 export function ClientAssignments({ clientId, compact = false }: { clientId: string; compact?: boolean }) {
+  const { user } = useAuth();
   const [rows, setRows] = useState<Assn[]>([]);
   const [profiles, setProfiles] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
@@ -27,7 +29,17 @@ export function ClientAssignments({ clientId, compact = false }: { clientId: str
   async function add() {
     if (!userId) return;
     const { error } = await supabase.from("client_assignments").insert({ client_id: clientId, user_id: userId, role_on_engagement: role || null });
-    if (error) toast.error(error.message); else { setUserId(""); setRole(""); setOpen(false); load(); }
+    if (error) return toast.error(error.message);
+    if (userId !== user?.id) {
+      const { data: client } = await supabase.from("clients").select("company_name").eq("id", clientId).maybeSingle();
+      await supabase.from("notifications").insert({
+        user_id: userId, type: "client_assigned",
+        title: "Assigned to a client",
+        body: client?.company_name ? `You were assigned to ${client.company_name}${role ? ` as ${role}` : ""}` : "You were assigned to a client",
+        link: `/clients/${clientId}`,
+      });
+    }
+    setUserId(""); setRole(""); setOpen(false); load();
   }
   async function remove(id: string) {
     const { error } = await supabase.from("client_assignments").delete().eq("id", id);
