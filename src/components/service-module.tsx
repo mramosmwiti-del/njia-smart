@@ -17,7 +17,7 @@ export type ServiceModuleKey =
 
 const STATUSES = ["not_started", "in_progress", "under_review", "completed"];
 
-const STAGES = [
+const DEFAULT_STAGES = [
   { key: "kickoff", label: "Kick-off" },
   { key: "information", label: "Information gathering" },
   { key: "analysis", label: "Analysis & setup" },
@@ -26,7 +26,20 @@ const STAGES = [
   { key: "signoff", label: "Client sign-off" },
   { key: "closed", label: "Closed" },
 ];
-const stageLabel = (k?: string | null) => STAGES.find(s => s.key === k)?.label ?? "Kick-off";
+
+// Onboard client -> collect requirements -> define scope -> assign staff ->
+// monitor progress & record activity -> invoicing -> closing. Used by
+// Outsourced Accounting, Payroll Management and Financial Business
+// Management (ICT keeps the default deliverable-based pipeline above).
+export const CLIENT_ENGAGEMENT_STAGES = [
+  { key: "onboarding", label: "Onboarding" },
+  { key: "requirements", label: "Requirements" },
+  { key: "scope", label: "Scope" },
+  { key: "assignment", label: "Assignment" },
+  { key: "monitoring", label: "Monitoring" },
+  { key: "invoicing", label: "Invoicing" },
+  { key: "closed", label: "Closed" },
+];
 const MILESTONE_SELECT = "id, title, due_date, done, notes, assigned_to, stage, completed_at, verified, verified_by, verified_at";
 const PROJECT_SELECT = `*, clients(company_name), service_milestones(${MILESTONE_SELECT})`;
 
@@ -39,12 +52,18 @@ export function ServiceModulePage({
   moduleKey,
   moduleLabel,
   tagline,
+  stages = DEFAULT_STAGES,
 }: {
   moduleKey: ServiceModuleKey;
   moduleLabel: string;
   tagline: string;
+  stages?: { key: string; label: string }[];
 }) {
   const { isAdmin, user } = useAuth();
+  const STAGES = stages;
+  const defaultStageKey = STAGES[0]?.key ?? "kickoff";
+  const reopenStageKey = STAGES.length > 1 ? STAGES[STAGES.length - 2].key : defaultStageKey;
+  const stageLabel = (k?: string | null) => STAGES.find(s => s.key === k)?.label ?? (STAGES[0]?.label ?? "Stage 1");
   const [tab, setTab] = useState<"projects" | "clients" | "billing" | "documents">("projects");
 
   const [rows, setRows] = useState<any[]>([]);
@@ -56,7 +75,7 @@ export function ServiceModulePage({
   const [msDue, setMsDue] = useState("");
   const [msNotes, setMsNotes] = useState("");
   const [msAssignee, setMsAssignee] = useState("");
-  const [msStage, setMsStage] = useState("kickoff");
+  const [msStage, setMsStage] = useState(defaultStageKey);
   const [editingMs, setEditingMs] = useState<string | null>(null);
   const [editMsData, setEditMsData] = useState<any>({});
   const [milestoneDocs, setMilestoneDocs] = useState<Record<string, any[]>>({});
@@ -144,7 +163,7 @@ export function ServiceModulePage({
   async function reopenProject() {
     if (!milestoneEditor) return;
     const { error } = await supabase.from("service_projects" as any).update({
-      stage: "review", status: "in_progress", closed_at: null, closed_by: null,
+      stage: reopenStageKey, status: "in_progress", closed_at: null, closed_by: null,
     }).eq("id", milestoneEditor.id);
     if (error) toast.error(error.message); else { toast.success("Reopened"); reloadEditor(); }
   }
@@ -179,7 +198,7 @@ export function ServiceModulePage({
   }
   function startEditMs(m: any) {
     setEditingMs(m.id);
-    setEditMsData({ title: m.title, due_date: m.due_date ?? "", notes: m.notes ?? "", assigned_to: m.assigned_to ?? "", stage: m.stage ?? "kickoff" });
+    setEditMsData({ title: m.title, due_date: m.due_date ?? "", notes: m.notes ?? "", assigned_to: m.assigned_to ?? "", stage: m.stage ?? defaultStageKey });
   }
   async function saveEditMs() {
     if (!editingMs) return;
@@ -272,7 +291,7 @@ export function ServiceModulePage({
           <p className="text-sm text-muted-foreground">{tagline}</p>
         </div>
         {tab === "projects" && (
-          <button onClick={() => setDialog({ mode: "new", data: { client_id: "", title: "", description: "", start_date: "", due_date: "", status: "not_started", stage: "kickoff" } })} className="h-9 px-3 rounded-md bg-primary text-primary-foreground text-sm inline-flex items-center gap-2"><Plus className="h-4 w-4" /> New project</button>
+          <button onClick={() => setDialog({ mode: "new", data: { client_id: "", title: "", description: "", start_date: "", due_date: "", status: "not_started", stage: defaultStageKey } })} className="h-9 px-3 rounded-md bg-primary text-primary-foreground text-sm inline-flex items-center gap-2"><Plus className="h-4 w-4" /> New project</button>
         )}
       </div>
 
@@ -298,7 +317,7 @@ export function ServiceModulePage({
             const done = ms.filter((m: any) => m.done).length;
             const verified = ms.filter((m: any) => m.verified).length;
             const pct = ms.length ? Math.round((done / ms.length) * 100) : 0;
-            const stageIdx = STAGES.findIndex(s => s.key === (r.stage ?? "kickoff"));
+            const stageIdx = STAGES.findIndex(s => s.key === (r.stage ?? defaultStageKey));
             return (
               <div key={r.id} className="bg-card border rounded-lg p-4 hover:border-primary/50 transition">
                 <div className="flex justify-between items-start gap-2">
@@ -310,7 +329,7 @@ export function ServiceModulePage({
                 </div>
                 <div className="mt-2 flex items-center gap-1.5 text-[11px]">
                   <span className={`px-2 py-0.5 rounded-full ${r.stage === "closed" ? "bg-muted text-muted-foreground" : "bg-primary/10 text-primary"}`}>
-                    {r.stage === "closed" ? "Closed" : `Stage ${stageIdx + 1}/6 · ${stageLabel(r.stage)}`}
+                    {r.stage === "closed" ? "Closed" : `Stage ${stageIdx + 1}/${STAGES.length - 1} · ${stageLabel(r.stage)}`}
                   </span>
                 </div>
                 {r.description && <p className="text-sm text-muted-foreground mt-2 line-clamp-2">{r.description}</p>}
@@ -425,7 +444,7 @@ export function ServiceModulePage({
               <select value={dialog.data.status} onChange={e => setDialog({ ...dialog, data: { ...dialog.data, status: e.target.value } })} className="h-9 px-3 rounded-md border bg-background text-sm capitalize">
                 {STATUSES.map(s => <option key={s} value={s}>{s.replace(/_/g, " ")}</option>)}
               </select>
-              <select value={dialog.data.stage ?? "kickoff"} onChange={e => setDialog({ ...dialog, data: { ...dialog.data, stage: e.target.value } })} className="h-9 px-3 rounded-md border bg-background text-sm">
+              <select value={dialog.data.stage ?? defaultStageKey} onChange={e => setDialog({ ...dialog, data: { ...dialog.data, stage: e.target.value } })} className="h-9 px-3 rounded-md border bg-background text-sm">
                 {STAGES.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
               </select>
             </div>
@@ -457,8 +476,8 @@ export function ServiceModulePage({
               <div className="text-xs font-medium text-muted-foreground mb-2">Progress stage</div>
               <div className="flex flex-wrap gap-1.5">
                 {STAGES.filter(s => s.key !== "closed").map((s, i) => {
-                  const current = (milestoneEditor.stage ?? "kickoff") === s.key;
-                  const passed = STAGES.findIndex(x => x.key === (milestoneEditor.stage ?? "kickoff")) > i;
+                  const current = (milestoneEditor.stage ?? defaultStageKey) === s.key;
+                  const passed = STAGES.findIndex(x => x.key === (milestoneEditor.stage ?? defaultStageKey)) > i;
                   return (
                     <button key={s.key} disabled={editorClosed} onClick={() => setStage(s.key)}
                       className={`text-xs px-2.5 py-1 rounded-full border transition disabled:opacity-50 ${current ? "bg-primary text-primary-foreground border-primary" : passed ? "bg-accent/20 border-accent/40" : "bg-background hover:border-primary/50"}`}>
