@@ -127,9 +127,23 @@ function AdvisoryPage() {
     if (error) toast.error(error.message); else { toast.success("Reopened"); reloadEditor(); }
   }
 
-  async function notifyMilestoneAssignee(assigneeId: string, title: string) {
-    if (!assigneeId || assigneeId === user?.id) return;
+  async function notifyMilestoneAssignee(assigneeId: string, title: string, dueDate?: string | null) {
+    if (!assigneeId) return;
     const clientName = milestoneEditor?.clients?.company_name;
+
+    // Give the assignee a task so it shows up on their dashboard / task list.
+    await supabase.from("tasks").insert({
+      title: `${title} — Advisory`,
+      description: clientName ? `Step in Advisory engagement for ${clientName}.` : `Step in Advisory engagement.`,
+      client_id: milestoneEditor?.client_id ?? null,
+      assigned_to: assigneeId,
+      due_date: dueDate || null,
+      status: "todo",
+      priority: "normal",
+      created_by: user?.id ?? null,
+    });
+
+    if (assigneeId === user?.id) return;
     await supabase.from("notifications").insert({
       user_id: assigneeId, type: "milestone_assigned",
       title: "Assigned to a task",
@@ -146,7 +160,7 @@ function AdvisoryPage() {
     } as any);
     if (error) toast.error(error.message);
     else {
-      if (msAssignee) await notifyMilestoneAssignee(msAssignee, msTitle.trim());
+      if (msAssignee) await notifyMilestoneAssignee(msAssignee, msTitle.trim(), msDue);
       setMsTitle(""); setMsDue(""); setMsNotes(""); setMsAssignee(""); reloadEditor();
     }
   }
@@ -183,7 +197,7 @@ function AdvisoryPage() {
     if (error) toast.error(error.message);
     else {
       if (editMsData.assigned_to && editMsData.assigned_to !== original?.assigned_to) {
-        await notifyMilestoneAssignee(editMsData.assigned_to, editMsData.title);
+        await notifyMilestoneAssignee(editMsData.assigned_to, editMsData.title, editMsData.due_date);
       }
       setEditingMs(null); reloadEditor();
     }
