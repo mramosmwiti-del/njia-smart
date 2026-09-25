@@ -30,12 +30,26 @@ export function ClientAssignments({ clientId, compact = false }: { clientId: str
     if (!userId) return;
     const { error } = await supabase.from("client_assignments").insert({ client_id: clientId, user_id: userId, role_on_engagement: role || null });
     if (error) return toast.error(error.message);
+
+    const { data: client } = await supabase.from("clients").select("company_name").eq("id", clientId).maybeSingle();
+    const clientName = client?.company_name;
+
+    // Give the assignee a task so it shows up on their dashboard / task list.
+    await supabase.from("tasks").insert({
+      title: clientName ? `New client assignment: ${clientName}` : "New client assignment",
+      description: role ? `Added as ${role} on this client's engagement team.` : "Added to this client's engagement team.",
+      client_id: clientId,
+      assigned_to: userId,
+      status: "todo",
+      priority: "normal",
+      created_by: user?.id ?? null,
+    });
+
     if (userId !== user?.id) {
-      const { data: client } = await supabase.from("clients").select("company_name").eq("id", clientId).maybeSingle();
       await supabase.from("notifications").insert({
         user_id: userId, type: "client_assigned",
         title: "Assigned to a client",
-        body: client?.company_name ? `You were assigned to ${client.company_name}${role ? ` as ${role}` : ""}` : "You were assigned to a client",
+        body: clientName ? `You were assigned to ${clientName}${role ? ` as ${role}` : ""}` : "You were assigned to a client",
         link: `/clients/${clientId}`,
       });
     }
