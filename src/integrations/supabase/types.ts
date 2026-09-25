@@ -1078,6 +1078,10 @@ export type Database = {
         | "accountant"
         | "accounts_assistant"
         | "intern"
+        | "marketing"
+        | "tax_assistant"
+        | "audit_assistant"
+        | "internal_admin"
       client_status:
         | "not_started"
         | "in_progress"
@@ -1247,6 +1251,10 @@ export const Constants = {
         "accountant",
         "accounts_assistant",
         "intern",
+        "marketing",
+        "tax_assistant",
+        "audit_assistant",
+        "internal_admin",
       ],
       client_status: [
         "not_started",
