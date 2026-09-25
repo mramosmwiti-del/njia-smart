@@ -2,10 +2,12 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { UserPlus, X, Users } from "lucide-react";
+import { useAuth } from "@/lib/auth";
 
-type Row = { id: string; user_id: string; role: string | null; profile?: { full_name: string | null } | null };
+type Row = { id: string; user_id: string; role: string | null; assigned_by?: string | null; profile?: { full_name: string | null } | null };
 
 export function TaxAssignees({ taxReturnId, compact = false }: { taxReturnId: string; compact?: boolean }) {
+  const { user, isAdmin } = useAuth();
   const [rows, setRows] = useState<Row[]>([]);
   const [profiles, setProfiles] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
@@ -25,7 +27,7 @@ export function TaxAssignees({ taxReturnId, compact = false }: { taxReturnId: st
 
   async function add() {
     if (!userId) return;
-    const { error } = await supabase.from("tax_return_assignees" as any).insert({ tax_return_id: taxReturnId, user_id: userId, role: role || null } as any);
+    const { error } = await supabase.from("tax_return_assignees" as any).insert({ tax_return_id: taxReturnId, user_id: userId, role: role || null, assigned_by: user?.id ?? null } as any);
     if (error) toast.error(error.message);
     else {
       // notify the assignee
@@ -42,6 +44,9 @@ export function TaxAssignees({ taxReturnId, compact = false }: { taxReturnId: st
   async function remove(id: string) {
     const { error } = await supabase.from("tax_return_assignees" as any).delete().eq("id", id);
     if (error) toast.error(error.message); else load();
+  }
+  function canRemove(r: Row) {
+    return isAdmin || r.assigned_by == null || r.assigned_by === user?.id;
   }
 
   const available = profiles.filter(p => !rows.some(r => r.user_id === p.id));
@@ -98,7 +103,7 @@ export function TaxAssignees({ taxReturnId, compact = false }: { taxReturnId: st
                 <span className="font-medium">{r.profile?.full_name ?? "Unknown"}</span>
                 {r.role && <span className="text-xs text-muted-foreground ml-2">{r.role}</span>}
               </div>
-              <button onClick={() => remove(r.id)} className="text-muted-foreground hover:text-destructive"><X className="h-3.5 w-3.5" /></button>
+              {canRemove(r) && <button onClick={() => remove(r.id)} className="text-muted-foreground hover:text-destructive"><X className="h-3.5 w-3.5" /></button>}
             </div>
           ))}
         </div>

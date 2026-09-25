@@ -4,10 +4,10 @@ import { toast } from "sonner";
 import { UserPlus, X, Users } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 
-type Assn = { id: string; user_id: string; role_on_engagement: string | null; profile?: { full_name: string | null } | null };
+type Assn = { id: string; user_id: string; role_on_engagement: string | null; assigned_by?: string | null; profile?: { full_name: string | null } | null };
 
 export function ClientAssignments({ clientId, compact = false }: { clientId: string; compact?: boolean }) {
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const [rows, setRows] = useState<Assn[]>([]);
   const [profiles, setProfiles] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
@@ -28,7 +28,7 @@ export function ClientAssignments({ clientId, compact = false }: { clientId: str
 
   async function add() {
     if (!userId) return;
-    const { error } = await supabase.from("client_assignments").insert({ client_id: clientId, user_id: userId, role_on_engagement: role || null });
+    const { error } = await supabase.from("client_assignments").insert({ client_id: clientId, user_id: userId, role_on_engagement: role || null, assigned_by: user?.id ?? null });
     if (error) return toast.error(error.message);
 
     const { data: client } = await supabase.from("clients").select("company_name").eq("id", clientId).maybeSingle();
@@ -58,6 +58,9 @@ export function ClientAssignments({ clientId, compact = false }: { clientId: str
   async function remove(id: string) {
     const { error } = await supabase.from("client_assignments").delete().eq("id", id);
     if (error) toast.error(error.message); else load();
+  }
+  function canRemove(r: Assn) {
+    return isAdmin || r.assigned_by == null || r.assigned_by === user?.id;
   }
 
   const available = profiles.filter(p => !rows.some(r => r.user_id === p.id));
@@ -100,7 +103,7 @@ export function ClientAssignments({ clientId, compact = false }: { clientId: str
                 <span className="font-medium">{r.profile?.full_name ?? "Unknown"}</span>
                 {r.role_on_engagement && <span className="text-xs text-muted-foreground ml-2">{r.role_on_engagement}</span>}
               </div>
-              <button onClick={() => remove(r.id)} className="text-muted-foreground hover:text-destructive"><X className="h-3.5 w-3.5" /></button>
+              {canRemove(r) && <button onClick={() => remove(r.id)} className="text-muted-foreground hover:text-destructive"><X className="h-3.5 w-3.5" /></button>}
             </div>
           ))}
         </div>
