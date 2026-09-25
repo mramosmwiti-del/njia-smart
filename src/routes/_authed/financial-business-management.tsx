@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { ServiceModulePage } from "@/components/service-module";
+import { ServiceModulePage, CLIENT_ENGAGEMENT_STAGES } from "@/components/service-module";
 
 export const Route = createFileRoute("/_authed/financial-business-management")({
   head: () => ({
@@ -10,6 +10,7 @@ export const Route = createFileRoute("/_authed/financial-business-management")({
   }),
   component: () => (
     <ServiceModulePage
+      stages={CLIENT_ENGAGEMENT_STAGES}
       moduleKey="financial_business_management"
       moduleLabel="Financial Business Management"
       tagline="Financial and business management advisory — clients, work in progress, billing and documentation."

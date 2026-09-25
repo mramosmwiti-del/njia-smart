@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { ServiceModulePage } from "@/components/service-module";
+import { ServiceModulePage, CLIENT_ENGAGEMENT_STAGES } from "@/components/service-module";
 
 export const Route = createFileRoute("/_authed/payroll-management")({
   head: () => ({
@@ -10,6 +10,7 @@ export const Route = createFileRoute("/_authed/payroll-management")({
   }),
   component: () => (
     <ServiceModulePage
+      stages={CLIENT_ENGAGEMENT_STAGES}
       moduleKey="payroll_management"
       moduleLabel="Payroll Management"
       tagline="Client payroll runs and compliance — clients, work in progress, billing and documentation."
