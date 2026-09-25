@@ -2,8 +2,8 @@ import { createFileRoute, Link, useParams, useNavigate } from "@tanstack/react-r
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { ArrowLeft, Pencil, Trash2, Plus, Eye, EyeOff, Check, X } from "lucide-react";
-import { STATUS_COLORS, formatDate } from "@/lib/format";
+import { ArrowLeft, Pencil, Trash2, Plus, Eye, EyeOff, Check, X, Pause, Play } from "lucide-react";
+import { formatDate } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,10 +12,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { ClientAssignments } from "@/components/client-assignments";
+import { ObligationContacts } from "@/components/obligation-contacts";
 
 export const Route = createFileRoute("/_authed/clients/$id")({ component: ClientDetail });
 
-const STATUSES = ["not_started","in_progress","waiting_for_documents","under_review","filed","completed","overdue","urgent"];
 const TABS = ["Overview","Tax","Audit","Advisory","Documents","Tasks"] as const;
 const TASK_PRIORITIES = ["low","normal","high","urgent"];
 
@@ -27,6 +27,7 @@ function ClientDetail() {
   const [tab, setTab] = useState<typeof TABS[number]>("Overview");
   const [related, setRelated] = useState<any>({ tax: [], engagements: [], advisory: [], docs: [], tasks: [], contacts: [] });
   const [taxPolicies, setTaxPolicies] = useState<any[]>([]);
+  const [obligations, setObligations] = useState<any[]>([]);
   const [editOpen, setEditOpen] = useState(false);
   const [form, setForm] = useState<any>({});
   const [addOpen, setAddOpen] = useState<null | "tax" | "audit" | "advisory" | "document" | "task">(null);
@@ -49,7 +50,7 @@ function ClientDetail() {
     } else {
       setUpdaterName(null);
     }
-    const [tax, eng, adv, docs, tasks, contacts, pols] = await Promise.all([
+    const [tax, eng, adv, docs, tasks, contacts, pols, obl] = await Promise.all([
       supabase.from("tax_returns").select("*").eq("client_id", id).order("due_date"),
       supabase.from("engagements").select("*").eq("client_id", id).order("created_at", { ascending: false }),
       supabase.from("advisory_projects").select("*").eq("client_id", id),
@@ -57,15 +58,21 @@ function ClientDetail() {
       supabase.from("tasks").select("*").eq("client_id", id).order("created_at", { ascending: false }),
       supabase.from("client_contacts").select("*").eq("client_id", id),
       supabase.from("tax_policies").select("*").eq("active", true).order("sort_order"),
+      supabase.from("client_tax_obligations").select("*").eq("client_id", id).eq("active", true),
     ]);
     setRelated({ tax: tax.data ?? [], engagements: eng.data ?? [], advisory: adv.data ?? [], docs: docs.data ?? [], tasks: tasks.data ?? [], contacts: contacts.data ?? [] });
     setTaxPolicies((pols.data as any[]) ?? []);
+    setObligations(obl.data ?? []);
   }
   useEffect(() => { load(); }, [id]);
 
-  async function updateStatus(status: string) {
-    const { error } = await supabase.from("clients").update({ status: status as any }).eq("id", id);
-    if (error) toast.error(error.message); else { toast.success("Status updated"); load(); }
+  async function setPaused(paused: boolean) {
+    const { data: { user } } = await supabase.auth.getUser();
+    const { error } = await supabase.from("clients").update(
+      paused ? { is_paused: true, paused_at: new Date().toISOString(), paused_by: user?.id ?? null } as any
+             : { is_paused: false, paused_at: null, paused_by: null } as any
+    ).eq("id", id);
+    if (error) toast.error(error.message); else { toast.success(paused ? "Client marked inactive" : "Client marked active"); load(); }
   }
 
   function openEdit() {
@@ -222,9 +229,19 @@ function ClientDetail() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <select value={client.status} onChange={e=>updateStatus(e.target.value)} className={`h-9 px-3 rounded-md border bg-background text-sm capitalize ${STATUS_COLORS[client.status]}`}>
-              {STATUSES.map(s => <option key={s} value={s}>{s.replace(/_/g, " ")}</option>)}
-            </select>
+            <button
+              type="button"
+              onClick={() => setPaused(!(client as any).is_paused)}
+              className={`h-9 px-3 rounded-md border text-sm font-medium inline-flex items-center gap-1.5 ${
+                (client as any).is_paused
+                  ? "bg-muted text-muted-foreground border-muted-foreground/30 hover:bg-muted/70"
+                  : "bg-emerald-100 text-emerald-800 border-emerald-300 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-200 dark:border-emerald-800"
+              }`}
+              title={(client as any).is_paused ? "Click to mark active" : "Click to mark inactive"}
+            >
+              {(client as any).is_paused ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
+              {(client as any).is_paused ? "Inactive" : "Active"}
+            </button>
             <Button variant="outline" size="sm" onClick={openEdit}><Pencil className="h-3.5 w-3.5 mr-1" />Edit</Button>
             {isAdmin && (
               <AlertDialog>
@@ -313,12 +330,24 @@ function ClientDetail() {
           </Card>
         </div>
       )}
-      {tab === "Tax" && <TabSection label="tax obligation" onAdd={() => openAdd("tax")}><TaxList rows={related.tax} onDelete={async (taxId: string) => {
-        const { error } = await supabase.from("tax_returns").delete().eq("id", taxId);
-        if (error) { toast.error(error.message); return; }
-        toast.success("Tax obligation removed");
-        load();
-      }} empty="No tax returns" /></TabSection>}
+      {tab === "Tax" && (
+        <div className="space-y-3">
+          <TabSection label="tax obligation" onAdd={() => openAdd("tax")}><TaxList rows={related.tax} onDelete={async (taxId: string) => {
+            const { error } = await supabase.from("tax_returns").delete().eq("id", taxId);
+            if (error) { toast.error(error.message); return; }
+            toast.success("Tax obligation removed");
+            load();
+          }} empty="No tax returns" /></TabSection>
+          {obligations.length > 0 && (
+            <div className="space-y-2">
+              {obligations.map(o => {
+                const pol = taxPolicies.find(p => p.tax_type === o.tax_type);
+                return <ObligationContacts key={o.tax_type} clientId={id} taxType={o.tax_type} label={pol?.label ?? o.tax_type} />;
+              })}
+            </div>
+          )}
+        </div>
+      )}
       {tab === "Audit" && <TabSection label="audit engagement" onAdd={() => openAdd("audit")}><RelatedList rows={related.engagements.filter((e:any)=>e.type==="audit")} cols={["title","status","due_date"]} empty="No audit engagements" /></TabSection>}
       {tab === "Advisory" && <TabSection label="advisory project" onAdd={() => openAdd("advisory")}><RelatedList rows={related.advisory} cols={["title","status","due_date"]} empty="No advisory projects" /></TabSection>}
       {tab === "Documents" && <TabSection label="document" onAdd={() => openAdd("document")}><RelatedList rows={related.docs} cols={["title","version","created_at"]} empty="No documents" /></TabSection>}
