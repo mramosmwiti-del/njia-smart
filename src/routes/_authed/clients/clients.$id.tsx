@@ -124,7 +124,7 @@ function ClientDetail() {
         const types: string[] = (addForm.return_types ?? []).filter(Boolean);
         if (types.length === 0) throw new Error("Select at least one tax obligation");
         // Due dates aren't picked here — each type's own policy (cadence + due
-        // day, set under Tax > Policies) decides when the first filing is due.
+        // day, set by admins under Settings) decides when the first filing is due.
         for (const rt of types) {
           const { error } = await supabase.rpc("set_client_tax_obligation", {
             _client_id: id, _tax_type: rt, _active: true,
@@ -364,7 +364,7 @@ function ClientDetail() {
             <div className="space-y-3">
               <Field label="Tax obligations * (select one or more)">
                 {taxPolicies.length === 0 ? (
-                  <p className="text-xs text-muted-foreground p-2">No active tax policies configured yet — add types under Tax &gt; Policies first.</p>
+                  <p className="text-xs text-muted-foreground p-2">No active tax policies configured yet — an admin can add types under Settings first.</p>
                 ) : (
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-2 border rounded-md bg-background">
                     {taxPolicies.map(p => {
@@ -387,7 +387,7 @@ function ClientDetail() {
                 )}
               </Field>
               <p className="text-xs text-muted-foreground">
-                Due dates aren't set here — each type follows its own tax policy (cadence and due day, managed under Tax &gt; Policies), so the first filing is scheduled automatically.
+                Due dates aren't set here — each type follows its own tax policy (cadence and due day, managed by admins under Settings), so the first filing is scheduled automatically.
               </p>
             </div>
           )}
