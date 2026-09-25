@@ -1,20 +1,26 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Plus, Search, X } from "lucide-react";
+import { Plus, Search, X, Pause, Play, Trash2 } from "lucide-react";
 import { STATUS_COLORS, statusLabel, formatDate } from "@/lib/format";
 import { CsvImport } from "@/components/csv-import";
+import { useAuth } from "@/lib/auth";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 
 export const Route = createFileRoute("/_authed/clients/")({ component: ClientsList });
 
 const STATUSES = ["not_started","in_progress","waiting_for_documents","under_review","filed","completed","overdue","urgent"];
 
 function ClientsList() {
+  const { isAdmin } = useAuth();
   const [rows, setRows] = useState<any[]>([]);
   const [assignByClient, setAssignByClient] = useState<Record<string, string[]>>({});
   const [q, setQ] = useState("");
   const [typeFilter, setTypeFilter] = useState<"all"|"company"|"individual">("all");
+  const [stateFilter, setStateFilter] = useState<"active"|"paused"|"all">("active");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<any>({ client_type:"company", company_name:"", first_name:"", last_name:"", id_number:"", kra_pin:"", reg_number:"", industry:"", email:"", phone:"", engagement_type:"", notes:"" });
   const [busy, setBusy] = useState(false);
@@ -53,11 +59,45 @@ function ClientsList() {
     else { toast.success("Client added"); setOpen(false); setForm({ client_type:"company", company_name:"", first_name:"", last_name:"", id_number:"", kra_pin:"", reg_number:"", industry:"", email:"", phone:"", engagement_type:"", notes:"" }); load(); }
   }
 
-  const filtered = rows.filter(r =>
+  const filtered = useMemo(() => rows.filter(r =>
     (typeFilter === "all" || (r.client_type ?? "company") === typeFilter) &&
+    (stateFilter === "all" || (stateFilter === "paused" ? r.is_paused : !r.is_paused)) &&
     (!q || r.company_name?.toLowerCase().includes(q.toLowerCase()) ||
     r.kra_pin?.toLowerCase().includes(q.toLowerCase()))
-  );
+  ), [rows, typeFilter, stateFilter, q]);
+
+  const pausedCount = rows.filter(r => r.is_paused).length;
+
+  function toggleSelected(id: string) {
+    setSelected(s => { const next = new Set(s); next.has(id) ? next.delete(id) : next.add(id); return next; });
+  }
+  function toggleSelectAll() {
+    setSelected(s => s.size === filtered.length ? new Set() : new Set(filtered.map(r => r.id)));
+  }
+
+  async function setPaused(ids: string[], paused: boolean) {
+    const { data: { user } } = await supabase.auth.getUser();
+    const { error } = await supabase.from("clients").update(
+      paused ? { is_paused: true, paused_at: new Date().toISOString(), paused_by: user?.id ?? null }
+             : { is_paused: false, paused_at: null, paused_by: null }
+    ).in("id", ids);
+    if (error) toast.error(error.message);
+    else { toast.success(paused ? `${ids.length > 1 ? "Clients" : "Client"} paused` : `${ids.length > 1 ? "Clients" : "Client"} resumed`); load(); }
+  }
+
+  async function bulkPause(paused: boolean) {
+    setBulkBusy(true);
+    await setPaused([...selected], paused);
+    setBulkBusy(false);
+    setSelected(new Set());
+  }
+  async function bulkDelete() {
+    setBulkBusy(true);
+    const { error } = await supabase.from("clients").delete().in("id", [...selected]);
+    setBulkBusy(false);
+    if (error) toast.error(error.message);
+    else { toast.success(`${selected.size} client${selected.size > 1 ? "s" : ""} deleted`); setSelected(new Set()); load(); }
+  }
 
   return (
     <div className="space-y-4">
@@ -98,23 +138,59 @@ function ClientsList() {
             <button key={v} onClick={()=>setTypeFilter(v)} className={`h-9 px-3 ${typeFilter===v ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>{l}</button>
           ))}
         </div>
+        <div className="inline-flex rounded-md border bg-background overflow-hidden text-sm">
+          {([["active","Active"],["paused",`Paused${pausedCount ? ` (${pausedCount})` : ""}`],["all","All"]] as const).map(([v,l]) => (
+            <button key={v} onClick={()=>setStateFilter(v)} className={`h-9 px-3 ${stateFilter===v ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>{l}</button>
+          ))}
+        </div>
       </div>
+
+      {selected.size > 0 && (
+        <div className="bg-card border rounded-lg p-3 flex flex-wrap items-center gap-3">
+          <span className="text-sm font-medium">{selected.size} selected</span>
+          <button disabled={bulkBusy} onClick={()=>bulkPause(true)} className="h-8 px-3 rounded-md border text-xs inline-flex items-center gap-1.5 hover:bg-muted disabled:opacity-50"><Pause className="h-3.5 w-3.5" />Pause</button>
+          <button disabled={bulkBusy} onClick={()=>bulkPause(false)} className="h-8 px-3 rounded-md border text-xs inline-flex items-center gap-1.5 hover:bg-muted disabled:opacity-50"><Play className="h-3.5 w-3.5" />Resume</button>
+          {isAdmin && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <button disabled={bulkBusy} className="h-8 px-3 rounded-md border border-destructive/40 text-destructive text-xs inline-flex items-center gap-1.5 hover:bg-destructive/10 disabled:opacity-50"><Trash2 className="h-3.5 w-3.5" />Delete</button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete {selected.size} client{selected.size > 1 ? "s" : ""}?</AlertDialogTitle>
+                  <AlertDialogDescription>This permanently removes the selected clients and their related records. Cannot be undone. Consider pausing instead if you just need them out of the way.</AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={bulkDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+          <button onClick={()=>setSelected(new Set())} className="text-xs text-muted-foreground hover:text-foreground ml-auto">Clear selection</button>
+        </div>
+      )}
 
       <div className="bg-card border rounded-lg overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="text-left text-xs text-muted-foreground border-b bg-muted/40">
-              <tr><th className="py-2 px-3">Client</th><th>Type</th><th>KRA PIN</th><th>Industry</th><th>Engagement</th><th>Assigned</th><th>Status</th><th>Added</th></tr>
+              <tr>
+                <th className="py-2 px-3 w-8"><input type="checkbox" checked={filtered.length > 0 && selected.size === filtered.length} onChange={toggleSelectAll} /></th>
+                <th className="py-2 px-3">Client</th><th>Type</th><th>KRA PIN</th><th>Industry</th><th>Engagement</th><th>Assigned</th><th>Status</th><th>Added</th><th></th>
+              </tr>
             </thead>
             <tbody>
-              {filtered.length === 0 && <tr><td colSpan={8} className="py-10 text-center text-muted-foreground">No clients{q ? " match your search" : " yet — add the first one"}.</td></tr>}
+              {filtered.length === 0 && <tr><td colSpan={10} className="py-10 text-center text-muted-foreground">No clients{q ? " match your search" : " yet — add the first one"}.</td></tr>}
               {filtered.map(r => {
                 const names = assignByClient[r.id] ?? [];
                 const ctype = (r.client_type ?? "company") as "company"|"individual";
                 return (
-                  <tr key={r.id} className="border-b last:border-0 hover:bg-muted/30">
+                  <tr key={r.id} className={`border-b last:border-0 hover:bg-muted/30 ${r.is_paused ? "opacity-60" : ""}`}>
+                    <td className="py-2 px-3"><input type="checkbox" checked={selected.has(r.id)} onChange={()=>toggleSelected(r.id)} /></td>
                     <td className="py-2 px-3 font-medium">
                       <Link to="/clients/$id" params={{ id: r.id }} className="hover:text-primary">{r.company_name}</Link>
+                      {r.is_paused && <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground align-middle">Paused</span>}
                     </td>
                     <td>
                       <span className={`text-xs px-2 py-0.5 rounded-md border ${ctype === "individual" ? "border-blue-200 text-blue-700 dark:border-blue-900 dark:text-blue-300" : "border-emerald-200 text-emerald-700 dark:border-emerald-900 dark:text-emerald-300"}`}>
@@ -134,6 +210,31 @@ function ClientsList() {
                     </td>
                     <td><span className={`text-xs px-2 py-1 rounded-full capitalize ${STATUS_COLORS[r.status]}`}>{statusLabel(r.status)}</span></td>
                     <td className="text-muted-foreground">{formatDate(r.created_at)}</td>
+                    <td className="py-2 px-3 text-right whitespace-nowrap">
+                      <button onClick={()=>setPaused([r.id], !r.is_paused)} title={r.is_paused ? "Resume" : "Pause"} className="text-muted-foreground hover:text-foreground p-1">
+                        {r.is_paused ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
+                      </button>
+                      {isAdmin && (
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <button className="text-muted-foreground hover:text-destructive p-1" aria-label="Delete client"><Trash2 className="h-3.5 w-3.5" /></button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Delete {r.company_name}?</AlertDialogTitle>
+                              <AlertDialogDescription>This permanently removes this client and related records. Cannot be undone. Consider pausing instead if you just need them out of the way.</AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction onClick={async () => {
+                                const { error } = await supabase.from("clients").delete().eq("id", r.id);
+                                if (error) toast.error(error.message); else { toast.success("Client deleted"); load(); }
+                              }} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      )}
+                    </td>
                   </tr>
                 );
               })}
