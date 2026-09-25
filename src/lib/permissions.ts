@@ -124,6 +124,14 @@ for (const role of Object.keys(ROLE_ACCESS) as AppRole[]) {
   ROLE_ACCESS[role].dashboard = "full";
 }
 
+// Tasks are personal by default: only Director/Admin see every task across
+// the org. Every other role — regardless of how much access they have
+// elsewhere — only sees the tasks assigned to or created by them. This
+// overrides whatever "full"/"view" the per-role tables above set for tasks.
+for (const role of Object.keys(ROLE_ACCESS) as AppRole[]) {
+  ROLE_ACCESS[role].tasks = role === "director" || role === "admin" ? "full" : "assigned";
+}
+
 /** Highest access level a user has on a module, across all their roles. */
 export function getModuleAccess(roles: AppRole[], moduleKey: ModuleKey): AccessLevel {
   let best: AccessLevel = "none";
@@ -146,7 +154,9 @@ export function isAssignedOnly(roles: AppRole[], moduleKey: ModuleKey): boolean 
 
 /** Can the user create new records in this module? */
 export function canCreate(roles: AppRole[], moduleKey: ModuleKey): boolean {
-  return getModuleAccess(roles, moduleKey) === "full";
+  const level = getModuleAccess(roles, moduleKey);
+  if (moduleKey === "tasks") return level === "full" || level === "assigned";
+  return level === "full";
 }
 
 /** Can the user use/edit an existing record they have rights to view? */
