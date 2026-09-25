@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Save, Plus, AlertTriangle, Clock, UserX, LayoutGrid, Check } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, Clock, LayoutGrid, UserX } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { daysUntil, periodsOverdue } from "@/lib/format";
 
@@ -10,14 +10,13 @@ export const Route = createFileRoute("/_authed/tax")({
   head: () => ({
     meta: [
       { title: "Tax | G.K Nahashon & Company" },
-      { name: "description", content: "Policy-driven tax filing: obligation checklist, filing progress and per-type policies." },
+      { name: "description", content: "Tax filing: obligation checklist, filing progress and per-type tax tracking." },
     ],
   }),
   component: TaxPage,
 });
 
-const TABS = ["Overview", "Checklist", "Filing Record", "Policies"] as const;
-const CADENCES = ["monthly", "quarterly", "annual"] as const;
+const TABS = ["Overview", "Checklist", "Filing Record"] as const;
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
@@ -35,19 +34,16 @@ function TaxPage() {
   const [busyCell, setBusyCell] = useState<string | null>(null);
   const [clientFilter, setClientFilter] = useState("");
   const [accFilter, setAccFilter] = useState<"all" | "overdue" | "duesoon" | "unassigned">("all");
-  const [checklistType, setChecklistType] = useState<string>("");
+  const [checklistType, setChecklistType] = useState<string>("all");
+  const [expandedTaxType, setExpandedTaxType] = useState<string | null>(null);
   const [reportType, setReportType] = useState<string>("");
   const [reportFilter, setReportFilter] = useState<"all" | "filed" | "not_filed">("all");
-  const [editingType, setEditingType] = useState<string | null>(null);
-  const [editRow, setEditRow] = useState<any>({});
-  const [addingPolicy, setAddingPolicy] = useState(false);
-  const [newPolicy, setNewPolicy] = useState<any>({ tax_type: "", label: "", cadence: "monthly", due_day: 20 });
 
   async function load() {
     setLoading(true);
     const [p, r, c, o, s] = await Promise.all([
       supabase.from("tax_policies").select("*").order("sort_order"),
-      supabase.from("tax_returns").select("id, client_id, return_type, status, due_date, assigned_to"),
+      supabase.from("tax_returns").select("id, client_id, return_type, status, due_date, filed_at, assigned_to"),
       supabase.from("clients").select("id, company_name").order("company_name"),
       supabase.from("client_tax_obligations").select("*"),
       supabase.from("profiles").select("id, full_name"),
@@ -65,8 +61,8 @@ function TaxPage() {
 
   useEffect(() => {
     if (activePolicies.length === 0) return;
-    if (!checklistType || !activePolicies.some(p => p.tax_type === checklistType)) {
-      setChecklistType(activePolicies[0].tax_type);
+    if (checklistType !== "all" && (!checklistType || !activePolicies.some(p => p.tax_type === checklistType))) {
+      setChecklistType("all");
     }
   }, [activePolicies]);
 
@@ -174,39 +170,21 @@ function TaxPage() {
     else load();
   }
 
-  function startEdit(p: any) {
-    setEditingType(p.tax_type);
-    setEditRow({ label: p.label, cadence: p.cadence, due_day: p.due_day, active: p.active });
-  }
-  async function saveEdit(taxType: string) {
-    const { error } = await supabase.from("tax_policies").update({
-      label: editRow.label, cadence: editRow.cadence, due_day: Number(editRow.due_day) || 20, active: !!editRow.active,
-    }).eq("tax_type", taxType);
-    if (error) toast.error(error.message);
-    else { toast.success("Policy saved"); setEditingType(null); load(); }
-  }
-
-  async function addPolicy() {
-    const key = newPolicy.tax_type.trim().toLowerCase().replace(/\s+/g, "_");
-    if (!key || !newPolicy.label.trim()) { toast.error("Type key and label are required"); return; }
-    const { error } = await supabase.from("tax_policies").insert({
-      tax_type: key, label: newPolicy.label.trim(), cadence: newPolicy.cadence,
-      due_day: Number(newPolicy.due_day) || 20, sort_order: policies.length + 1,
-    } as any);
-    if (error) toast.error(error.message);
-    else {
-      toast.success("Tax type added");
-      setAddingPolicy(false);
-      setNewPolicy({ tax_type: "", label: "", cadence: "monthly", due_day: 20 });
-      load();
+  async function setStatus(id: string, status: "pending" | "filed") {
+    const { error } = await supabase.from("tax_returns").update({ status }).eq("id", id);
+    if (error) {
+      toast.error(error.message);
+      return;
     }
+    toast.success(status === "filed" ? "Marked filed — next period scheduled" : "Filing reopened");
+    load();
   }
 
   return (
     <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-bold">Tax</h1>
-        <p className="text-sm text-muted-foreground">Each tax type follows its own policy — file the current period and the next one is scheduled automatically.</p>
+        <p className="text-sm text-muted-foreground">Each tax type follows its own filing schedule — file the current period and the next one is scheduled automatically.</p>
       </div>
 
       <div className="flex flex-wrap gap-1 border-b">
@@ -218,25 +196,91 @@ function TaxPage() {
       {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
 
       {!loading && tab === "Overview" && (
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {summary.length === 0 && (
-            <div className="col-span-full bg-card border rounded-lg p-8 text-center text-muted-foreground text-sm">
-              No active tax policies yet — add one under the Policies tab.
-            </div>
-          )}
-          {summary.map(s => (
-            <Link key={s.tax_type} to="/tax/$type" params={{ type: s.tax_type }} className="text-left bg-card border rounded-lg p-3 hover:border-primary/60 hover:shadow-sm transition block">
-              <div className="flex items-center justify-between gap-2">
-                <div className="text-sm font-medium">{s.label}</div>
-                <div className="text-[11px] text-muted-foreground capitalize whitespace-nowrap">{s.cadence} · due {s.due_day}</div>
+        <div className="space-y-3">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {summary.length === 0 && (
+              <div className="col-span-full bg-card border rounded-lg p-8 text-center text-muted-foreground text-sm">
+                No active tax types configured yet.
               </div>
-              <div className="text-2xl font-bold mt-1">{s.open}</div>
-              <div className="text-xs text-muted-foreground">
-                open · {s.obligated} client{s.obligated === 1 ? "" : "s"} obligated
-                {s.overdue > 0 && <span className="text-destructive"> · {s.overdue} overdue</span>}
+            )}
+            {summary.map(s => {
+              const expanded = expandedTaxType === s.tax_type;
+              return (
+                <button
+                  key={s.tax_type}
+                  type="button"
+                  onClick={() => setExpandedTaxType(expanded ? null : s.tax_type)}
+                  className={`text-left bg-card border rounded-lg p-3 hover:border-primary/60 hover:shadow-sm transition block ${expanded ? "border-primary/60 shadow-sm" : ""}`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-sm font-medium">{s.label}</div>
+                    <div className="flex items-center gap-2">
+                      <div className="text-[11px] text-muted-foreground capitalize whitespace-nowrap">{s.cadence} · due {s.due_day}</div>
+                      <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${expanded ? "rotate-180" : ""}`} />
+                    </div>
+                  </div>
+                  <div className="text-2xl font-bold mt-1">{s.open}</div>
+                  <div className="text-xs text-muted-foreground">
+                    open · {s.obligated} client{s.obligated === 1 ? "" : "s"} obligated
+                    {s.overdue > 0 && <span className="text-destructive"> · {s.overdue} overdue</span>}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {expandedTaxType && (() => {
+            const pol = activePolicies.find(p => p.tax_type === expandedTaxType);
+            if (!pol) return null;
+            const obligatedClients = filteredClients.filter(c => obligationMap.get(`${c.id}:${pol.tax_type}`));
+            return (
+              <div className="bg-card border rounded-lg overflow-hidden">
+                <div className="px-3 py-2 border-b flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-medium">{pol.label} — obligated clients</div>
+                    <div className="text-xs text-muted-foreground">Current filing for each client under this obligation.</div>
+                  </div>
+                  <Link to="/tax/$type" params={{ type: pol.tax_type }} className="text-xs text-primary hover:underline whitespace-nowrap">Open filings</Link>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/40 text-left text-xs text-muted-foreground border-b">
+                      <tr><th className="py-2 px-3">Client</th><th className="py-2 px-3">Current filing</th><th className="py-2 px-3">Filed</th><th className="py-2 px-3">Assignee</th></tr>
+                    </thead>
+                    <tbody>
+                      {obligatedClients.length === 0 && (
+                        <tr><td colSpan={4} className="py-8 text-center text-muted-foreground">No clients are currently obligated for {pol.label}.</td></tr>
+                      )}
+                      {obligatedClients.map(c => {
+                        const cur = currentReturn(c.id, pol.tax_type);
+                        return (
+                          <tr key={`${c.id}:${pol.tax_type}`} className="border-b last:border-0 hover:bg-muted/20">
+                            <td className="py-2 px-3 font-medium">{c.company_name}</td>
+                            <td className="py-2 px-3">
+                              {cur ? (
+                                <Link to="/tax/$type" params={{ type: pol.tax_type }} search={{ client: c.id }} className="inline-block hover:opacity-80">
+                                  <ChecklistCell row={cur} cadence={pol.cadence} assigneeName={cur.assigned_to ? staffMap.get(cur.assigned_to) : null} />
+                                </Link>
+                              ) : <span className="text-xs text-muted-foreground">Scheduling…</span>}
+                            </td>
+                            <td className="py-2 px-3">
+                              {cur ? (
+                                <label className="inline-flex items-center gap-2 text-xs cursor-pointer">
+                                  <input type="checkbox" checked={cur.status === "filed"} onChange={e => setStatus(cur.id, e.target.checked ? "filed" : "pending")} />
+                                  {cur.status === "filed" ? "Filed" : "Mark filed"}
+                                </label>
+                              ) : "—"}
+                            </td>
+                            <td className="py-2 px-3 text-xs">{cur?.assigned_to ? staffMap.get(cur.assigned_to) ?? "—" : "—"}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </Link>
-          ))}
+            );
+          })()}
         </div>
       )}
 
@@ -246,7 +290,7 @@ function TaxPage() {
             <div>
               <label className="text-xs font-medium text-muted-foreground mr-2">Tax type</label>
               <select value={checklistType} onChange={e => setChecklistType(e.target.value)} className="h-9 px-3 rounded-md border bg-background text-sm min-w-[180px]">
-                {activePolicies.length === 0 && <option value="">No active policies</option>}
+                <option value="all">All tax types</option>
                 {activePolicies.map(p => <option key={p.tax_type} value={p.tax_type}>{p.label}</option>)}
               </select>
             </div>
@@ -259,27 +303,25 @@ function TaxPage() {
             </div>
           </div>
 
-          {(() => {
-            const pol = activePolicies.find(p => p.tax_type === checklistType);
-            if (!pol) return <p className="text-sm text-muted-foreground p-4">No active tax policies yet — add one under the Policies tab.</p>;
-            return (
-              <div className="bg-card border rounded-lg overflow-hidden">
-                <div className="px-3 py-2 border-b text-xs text-muted-foreground flex items-center justify-between">
-                  <span>Check a client on to add the <span className="font-medium text-foreground">{pol.label}</span> obligation — it schedules that client's first open filing per policy. Uncheck to stop future renewal (open filings stay).</span>
-                  <span className="capitalize whitespace-nowrap ml-3">{pol.cadence} · due day {pol.due_day}</span>
-                </div>
-                <table className="w-full text-sm">
-                  <thead className="bg-muted/40 text-left text-xs text-muted-foreground border-b">
-                    <tr><th className="py-2 px-3 w-10"></th><th className="py-2 px-3">Client</th><th className="py-2 px-3">Current filing</th></tr>
-                  </thead>
-                  <tbody>
-                    {displayClients.length === 0 && <tr><td colSpan={3} className="py-8 text-center text-muted-foreground">No clients match.</td></tr>}
-                    {displayClients.map(c => {
-                      const key = `${c.id}:${pol.tax_type}`;
+          <div className="bg-card border rounded-lg overflow-hidden">
+            <div className="px-3 py-2 border-b text-xs text-muted-foreground">
+              Use the checkbox to add or remove a client's tax obligation. Use <span className="font-medium text-foreground">Filed</span> to mark the current filing as completed; the next period is scheduled automatically.
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/40 text-left text-xs text-muted-foreground border-b">
+                  <tr><th className="py-2 px-3 w-10"></th><th className="py-2 px-3">Client</th><th className="py-2 px-3">Tax type</th><th className="py-2 px-3">Current filing</th><th className="py-2 px-3">Filed</th></tr>
+                </thead>
+                <tbody>
+                  {(() => {
+                    const scopedPolicies = checklistType === "all" ? activePolicies : activePolicies.filter(p => p.tax_type === checklistType);
+                    const rows = displayClients.flatMap(c => scopedPolicies.map(pol => ({ client: c, pol, key: `${c.id}:${pol.tax_type}` })));
+                    if (rows.length === 0) return <tr><td colSpan={5} className="py-8 text-center text-muted-foreground">No clients match.</td></tr>;
+                    return rows.map(({ client: c, pol, key }) => {
                       const obligated = obligationMap.get(key) ?? false;
                       const cur = obligated ? currentReturn(c.id, pol.tax_type) : null;
                       return (
-                        <tr key={c.id} className="border-b last:border-0 hover:bg-muted/20">
+                        <tr key={key} className="border-b last:border-0 hover:bg-muted/20">
                           <td className="py-1.5 px-3">
                             <input
                               type="checkbox"
@@ -290,6 +332,7 @@ function TaxPage() {
                             />
                           </td>
                           <td className="py-1.5 px-3 font-medium">{c.company_name}</td>
+                          <td className="py-1.5 px-3 text-xs text-muted-foreground">{pol.label}</td>
                           <td className="py-1.5 px-3">
                             {!obligated ? (
                               <span className="text-muted-foreground/50 text-xs">Not obligated</span>
@@ -301,14 +344,22 @@ function TaxPage() {
                               </Link>
                             )}
                           </td>
+                          <td className="py-1.5 px-3">
+                            {cur ? (
+                              <label className="inline-flex items-center gap-2 text-xs cursor-pointer">
+                                <input type="checkbox" checked={cur.status === "filed"} onChange={e => setStatus(cur.id, e.target.checked ? "filed" : "pending")} />
+                                {cur.status === "filed" ? "Filed" : "Mark filed"}
+                              </label>
+                            ) : <span className="text-xs text-muted-foreground">—</span>}
+                          </td>
                         </tr>
                       );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            );
-          })()}
+                    });
+                  })()}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       )}
 
@@ -359,85 +410,6 @@ function TaxPage() {
         </div>
       )}
 
-      {!loading && tab === "Policies" && (
-        <div className="space-y-3">
-          {!isAdmin && <p className="text-sm text-muted-foreground">Only admins/directors can edit policies.</p>}
-          <div className="bg-card border rounded-lg overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/40 text-left text-xs text-muted-foreground border-b">
-                <tr><th className="py-2 px-3">Tax type</th><th className="py-2 px-3">Label</th><th className="py-2 px-3">Cadence</th><th className="py-2 px-3">Due day</th><th className="py-2 px-3">Active</th><th className="py-2 px-3 w-24"></th></tr>
-              </thead>
-              <tbody>
-                {policies.map(p => {
-                  const editing = editingType === p.tax_type;
-                  return (
-                    <tr key={p.tax_type} className="border-b last:border-0">
-                      <td className="py-2 px-3 font-mono text-xs text-muted-foreground">{p.tax_type}</td>
-                      <td className="py-2 px-3">
-                        {editing ? <input value={editRow.label} onChange={e => setEditRow({ ...editRow, label: e.target.value })} className="h-8 px-2 rounded border bg-background text-sm w-40" /> : p.label}
-                      </td>
-                      <td className="py-2 px-3">
-                        {editing ? (
-                          <select value={editRow.cadence} onChange={e => setEditRow({ ...editRow, cadence: e.target.value })} className="h-8 px-2 rounded border bg-background text-sm capitalize">
-                            {CADENCES.map(c => <option key={c} value={c}>{c}</option>)}
-                          </select>
-                        ) : <span className="capitalize">{p.cadence}</span>}
-                      </td>
-                      <td className="py-2 px-3">
-                        {editing ? <input type="number" min={1} max={31} value={editRow.due_day} onChange={e => setEditRow({ ...editRow, due_day: e.target.value })} className="h-8 w-16 px-2 rounded border bg-background text-sm" /> : p.due_day}
-                      </td>
-                      <td className="py-2 px-3">
-                        {editing ? <input type="checkbox" checked={!!editRow.active} onChange={e => setEditRow({ ...editRow, active: e.target.checked })} /> : (p.active ? "Yes" : "No")}
-                      </td>
-                      <td className="py-2 px-3 text-right whitespace-nowrap">
-                        {isAdmin && (editing ? (
-                          <div className="inline-flex gap-2">
-                            <button onClick={() => saveEdit(p.tax_type)} className="text-primary text-xs inline-flex items-center gap-1"><Save className="h-3 w-3" />Save</button>
-                            <button onClick={() => setEditingType(null)} className="text-muted-foreground text-xs">Cancel</button>
-                          </div>
-                        ) : (
-                          <button onClick={() => startEdit(p)} className="text-primary text-xs">Edit</button>
-                        ))}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-
-          {isAdmin && (
-            addingPolicy ? (
-              <div className="bg-card border rounded-lg p-3 grid sm:grid-cols-5 gap-2 items-end">
-                <div>
-                  <label className="text-xs font-medium">Type key</label>
-                  <input placeholder="e.g. digital_service_tax" value={newPolicy.tax_type} onChange={e => setNewPolicy({ ...newPolicy, tax_type: e.target.value })} className="mt-1 w-full h-9 px-2 rounded-md border bg-background text-sm" />
-                </div>
-                <div>
-                  <label className="text-xs font-medium">Label</label>
-                  <input value={newPolicy.label} onChange={e => setNewPolicy({ ...newPolicy, label: e.target.value })} className="mt-1 w-full h-9 px-2 rounded-md border bg-background text-sm" />
-                </div>
-                <div>
-                  <label className="text-xs font-medium">Cadence</label>
-                  <select value={newPolicy.cadence} onChange={e => setNewPolicy({ ...newPolicy, cadence: e.target.value })} className="mt-1 w-full h-9 px-2 rounded-md border bg-background text-sm capitalize">
-                    {CADENCES.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs font-medium">Due day</label>
-                  <input type="number" min={1} max={31} value={newPolicy.due_day} onChange={e => setNewPolicy({ ...newPolicy, due_day: e.target.value })} className="mt-1 w-full h-9 px-2 rounded-md border bg-background text-sm" />
-                </div>
-                <div className="flex gap-2">
-                  <button onClick={addPolicy} className="h-9 px-3 rounded-md bg-primary text-primary-foreground text-sm">Add</button>
-                  <button onClick={() => setAddingPolicy(false)} className="h-9 px-3 rounded-md border text-sm">Cancel</button>
-                </div>
-              </div>
-            ) : (
-              <button onClick={() => setAddingPolicy(true)} className="h-9 px-3 rounded-md bg-primary text-primary-foreground text-sm inline-flex items-center gap-2"><Plus className="h-4 w-4" /> Add tax type</button>
-            )
-          )}
-        </div>
-      )}
     </div>
   );
 }
