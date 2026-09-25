@@ -9,6 +9,7 @@ import {
 import { useState } from "react";
 import { NotificationBell } from "./notification-bell";
 import { PageTransition } from "./page-transition";
+import { NAV_MODULE_BY_PATH } from "@/lib/permissions";
 
 const NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -35,12 +36,20 @@ const ADMIN_NAV = [
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const { user, roles, isAdmin, signOut } = useAuth();
+  const { user, roles, canView, signOut } = useAuth();
   const router = useRouter();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [open, setOpen] = useState(false);
 
-  const items = isAdmin ? [...NAV, ...ADMIN_NAV] : NAV;
+  // Only show a nav entry when the user actually has rights to that module —
+  // no rights means no visibility, not just a blocked click-through.
+  const visible = (list: typeof NAV) =>
+    list.filter(({ to }) => {
+      const moduleKey = NAV_MODULE_BY_PATH[to];
+      return moduleKey ? canView(moduleKey) : true;
+    });
+
+  const items = [...visible(NAV), ...visible(ADMIN_NAV)];
 
   return (
     <div className="min-h-screen flex bg-background">
