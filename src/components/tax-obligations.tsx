@@ -19,7 +19,7 @@ function money(n: number) {
 }
 
 export function TaxObligations({ clientId }: { clientId: string }) {
-  const { isAdmin } = useAuth();
+  const { user, isAdmin, canCreate, canDelete } = useAuth();
   const [rows, setRows] = useState<any[]>([]);
   const [policies, setPolicies] = useState<any[]>([]);
   const [docs, setDocs] = useState<Record<string, any[]>>({});
@@ -98,6 +98,7 @@ export function TaxObligations({ clientId }: { clientId: string }) {
       client_id: clientId, return_type: rt,
       period_start: addForm.period_start || null, period_end: addForm.period_end || null,
       due_date: addForm.due_date, notes: addForm.notes || null,
+      created_by: user?.id,
     }));
     const { error } = await supabase.from("tax_returns").insert(payload as any);
     setAddBusy(false);
@@ -167,7 +168,9 @@ export function TaxObligations({ clientId }: { clientId: string }) {
   return (
     <div className="space-y-3">
       <div className="flex justify-end">
-        <Button size="sm" onClick={() => setAddOpen(true)}><Plus className="h-3.5 w-3.5 mr-1" />Add obligation</Button>
+        {canCreate("tax") && (
+          <Button size="sm" onClick={() => setAddOpen(true)}><Plus className="h-3.5 w-3.5 mr-1" />Add obligation</Button>
+        )}
       </div>
 
       {types.length === 0 && (
@@ -199,7 +202,7 @@ export function TaxObligations({ clientId }: { clientId: string }) {
                     <select value={r.status} onChange={e => setStatus(r.id, e.target.value)} className={`h-7 px-2 rounded text-xs border bg-background capitalize ${STATUS_COLORS[r.status]}`}>
                       {STATUSES.map(s => <option key={s} value={s}>{statusLabel(s)}</option>)}
                     </select>
-                    {isAdmin && (
+                    {canDelete("tax", { createdBy: r.created_by }) && (
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
                           <button className="text-muted-foreground hover:text-destructive p-1" aria-label="Remove"><Trash2 className="h-3.5 w-3.5" /></button>
