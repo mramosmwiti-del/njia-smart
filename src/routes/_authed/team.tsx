@@ -10,7 +10,7 @@ import { Plus, X, UserPlus } from "lucide-react";
 
 export const Route = createFileRoute("/_authed/team")({ component: TeamPage });
 
-const ROLES: AppRole[] = ["director","admin","audit_manager","tax_consultant","advisory_officer","accountant","accounts_assistant","intern"];
+const ROLES: AppRole[] = ["director","admin","audit_manager","tax_consultant","advisory_officer","accountant","accounts_assistant","intern","marketing","tax_assistant","audit_assistant","internal_admin"];
 const EMPTY = { email:"", password:"", full_name:"", department:"", phone:"", role:"accountant" as AppRole };
 
 function TeamPage() {
