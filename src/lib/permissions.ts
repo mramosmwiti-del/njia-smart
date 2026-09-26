@@ -134,11 +134,15 @@ for (const role of Object.keys(ROLE_ACCESS) as AppRole[]) {
   ROLE_ACCESS[role].tasks = role === "director" || role === "admin" ? "full" : "assigned";
 }
 
-// ICT Service Desk is a separate module from ICT (projects), but shares the
-// same access rules for now: whatever access a role has on "ict", it gets
-// the same on "ict_service_desk".
+// ICT Service Desk is a separate module from ICT (projects) and is open to
+// everyone: every role can see the module and raise/see their own tickets
+// ("assigned" — same "own records only" semantics tasks already use). Full
+// oversight — every ticket, plus asset/maintenance detail — is reserved for
+// Director/Admin, who already get "full" here via levels(ALL_MODULES) above.
 for (const role of Object.keys(ROLE_ACCESS) as AppRole[]) {
-  ROLE_ACCESS[role].ict_service_desk = ROLE_ACCESS[role].ict;
+  if (role !== "director" && role !== "admin") {
+    ROLE_ACCESS[role].ict_service_desk = "assigned";
+  }
 }
 
 /** Highest access level a user has on a module, across all their roles. */
@@ -164,7 +168,7 @@ export function isAssignedOnly(roles: AppRole[], moduleKey: ModuleKey): boolean 
 /** Can the user create new records in this module? */
 export function canCreate(roles: AppRole[], moduleKey: ModuleKey): boolean {
   const level = getModuleAccess(roles, moduleKey);
-  if (moduleKey === "tasks") return level === "full" || level === "assigned";
+  if (moduleKey === "tasks" || moduleKey === "ict_service_desk") return level === "full" || level === "assigned";
   return level === "full";
 }
 
