@@ -17,6 +17,7 @@ export const Route = createFileRoute("/_authed/ict-service-desk")({
 
 const CATEGORIES = ["Hardware", "Software", "Network", "Access/Account", "Other"];
 const PRIORITIES = ["Low", "Medium", "High", "Critical"];
+const STATUSES = ["New", "In Progress", "On Hold", "Resolved", "Closed"];
 const EMPTY_FORM = { title: "", description: "", category: CATEGORIES[0], priority: "Medium" };
 
 const PRIORITY_COLORS: Record<string, string> = {
@@ -24,6 +25,14 @@ const PRIORITY_COLORS: Record<string, string> = {
   Medium: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200",
   High: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
   Critical: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200",
+};
+
+const STATUS_COLORS: Record<string, string> = {
+  New: "bg-muted text-muted-foreground",
+  "In Progress": "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200",
+  "On Hold": "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
+  Resolved: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200",
+  Closed: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200",
 };
 
 type Ticket = {
@@ -57,6 +66,7 @@ function IctServiceDesk() {
   const canRaiseTicket = canCreate("ict_service_desk");
 
   const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [staff, setStaff] = useState<{ id: string; full_name: string | null }[]>([]);
   const [openCount, setOpenCount] = useState(0);
   const [criticalCount, setCriticalCount] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -69,18 +79,29 @@ function IctServiceDesk() {
   // plain select gives each viewer exactly the counts/rows they should see.
   async function load() {
     setLoading(true);
-    const [ticketsRes, openRes, criticalRes] = await Promise.all([
+    const [ticketsRes, openRes, criticalRes, staffRes] = await Promise.all([
       supabase.from("ict_tickets").select("*").order("created_at", { ascending: false }),
       supabase.from("ict_tickets").select("id", { count: "exact", head: true }).not("status", "in", "(Resolved,Closed)"),
       supabase.from("ict_tickets").select("id", { count: "exact", head: true }).eq("priority", "Critical"),
+      fullAccess ? supabase.from("profiles").select("id, full_name").order("full_name") : Promise.resolve({ data: [], error: null }),
     ]);
     if (ticketsRes.error) toast.error(ticketsRes.error.message);
     setTickets((ticketsRes.data as Ticket[]) ?? []);
     setOpenCount(openRes.count ?? 0);
     setCriticalCount(criticalRes.count ?? 0);
+    setStaff((staffRes.data as any[]) ?? []);
     setLoading(false);
   }
   useEffect(() => { load(); }, []);
+
+  // Only full-access roles (Director/Admin) hit this — the RLS "update"
+  // policy on ict_tickets enforces the same rule server-side regardless.
+  async function updateTicket(id: string, patch: Partial<Pick<Ticket, "status" | "assigned_to">>) {
+    setTickets((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t))); // optimistic
+    const { error } = await supabase.from("ict_tickets").update(patch).eq("id", id);
+    if (error) { toast.error(error.message); load(); return; }
+    toast.success("Ticket updated");
+  }
 
   async function submitTicket(e: React.FormEvent) {
     e.preventDefault();
@@ -141,12 +162,13 @@ function IctServiceDesk() {
                 <th>Category</th>
                 <th>Priority</th>
                 <th>Status</th>
+                {fullAccess && <th>Assignee</th>}
                 <th>Raised</th>
               </tr>
             </thead>
             <tbody>
               {!loading && tickets.length === 0 && (
-                <tr><td colSpan={5} className="py-10 text-center text-muted-foreground">No tickets yet.</td></tr>
+                <tr><td colSpan={fullAccess ? 6 : 5} className="py-10 text-center text-muted-foreground">No tickets yet.</td></tr>
               )}
               {tickets.map((t) => (
                 <tr key={t.id} className="border-b last:border-0 hover:bg-muted/30">
@@ -156,7 +178,31 @@ function IctServiceDesk() {
                   </td>
                   <td className="text-xs text-muted-foreground">{t.category ?? "—"}</td>
                   <td><span className={`text-xs px-2 py-0.5 rounded ${PRIORITY_COLORS[t.priority ?? ""] ?? "bg-muted text-muted-foreground"}`}>{t.priority ?? "—"}</span></td>
-                  <td className="text-xs">{t.status}</td>
+                  <td>
+                    {fullAccess ? (
+                      <select
+                        value={t.status}
+                        onChange={(e) => updateTicket(t.id, { status: e.target.value })}
+                        className={`h-7 px-2 rounded text-xs border bg-background ${STATUS_COLORS[t.status] ?? ""}`}
+                      >
+                        {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    ) : (
+                      <span className={`text-xs px-2 py-0.5 rounded ${STATUS_COLORS[t.status] ?? "bg-muted text-muted-foreground"}`}>{t.status}</span>
+                    )}
+                  </td>
+                  {fullAccess && (
+                    <td>
+                      <select
+                        value={t.assigned_to ?? ""}
+                        onChange={(e) => updateTicket(t.id, { assigned_to: e.target.value || null })}
+                        className="h-7 px-2 rounded text-xs border bg-background"
+                      >
+                        <option value="">Unassigned</option>
+                        {staff.map((s) => <option key={s.id} value={s.id}>{s.full_name ?? "Unnamed"}</option>)}
+                      </select>
+                    </td>
+                  )}
                   <td className="text-xs text-muted-foreground">{new Date(t.created_at).toLocaleDateString("en-KE", { day: "2-digit", month: "short", year: "numeric" })}</td>
                 </tr>
               ))}
