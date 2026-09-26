@@ -13,11 +13,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { ClientAssignments } from "@/components/client-assignments";
 import { ObligationContacts } from "@/components/obligation-contacts";
-import { ClientChatPanel } from "@/components/client-chat-panel";
 
 export const Route = createFileRoute("/_authed/clients/$id")({ component: ClientDetail });
 
-const TABS = ["Overview","Tax","Audit","Advisory","Documents","Tasks","Chat"] as const;
+const TABS = ["Overview","Tax","Audit","Advisory","Documents","Tasks"] as const;
 const TASK_PRIORITIES = ["low","normal","high","urgent"];
 
 function ClientDetail() {
@@ -353,7 +352,6 @@ function ClientDetail() {
       {tab === "Advisory" && <TabSection label="advisory project" onAdd={() => openAdd("advisory")}><RelatedList rows={related.advisory} cols={["title","status","due_date"]} empty="No advisory projects" /></TabSection>}
       {tab === "Documents" && <TabSection label="document" onAdd={() => openAdd("document")}><RelatedList rows={related.docs} cols={["title","version","created_at"]} empty="No documents" /></TabSection>}
       {tab === "Tasks" && <TabSection label="task" onAdd={() => openAdd("task")}><RelatedList rows={related.tasks} cols={["title","priority","status","due_date"]} empty="No tasks" /></TabSection>}
-      {tab === "Chat" && <ClientChatPanel clientId={id} />}
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className="max-w-2xl">

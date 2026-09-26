@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
 import {
-  Hash, Users2, Plus, Send, Paperclip, X, Loader2, Building2, MessageSquare,
+  Hash, Users2, Plus, Send, Paperclip, X, Loader2, MessageSquare,
 } from "lucide-react";
 
 export const Route = createFileRoute("/_authed/chat")({
@@ -14,8 +14,7 @@ export const Route = createFileRoute("/_authed/chat")({
 
 type Channel = {
   id: string;
-  kind: "team" | "client" | "dm" | "group";
-  client_id: string | null;
+  kind: "team" | "dm" | "group";
   name: string | null;
   created_by: string | null;
   created_at: string;
@@ -43,7 +42,6 @@ function ChatPage() {
   const search = useSearch({ from: "/_authed/chat" });
 
   const [channels, setChannels] = useState<Channel[]>([]);
-  const [clients, setClients] = useState<{ id: string; company_name: string }[]>([]);
   const [staff, setStaff] = useState<Profile[]>([]);
   const [profileById, setProfileById] = useState<Record<string, Profile>>({});
   const [activeId, setActiveId] = useState<string | null>(search.channel ?? null);
@@ -51,7 +49,7 @@ function ChatPage() {
   const [body, setBody] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [sending, setSending] = useState(false);
-  const [pickerOpen, setPickerOpen] = useState<null | "client" | "dm">(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // ---- load sidebar data --------------------------------------------------
@@ -65,11 +63,7 @@ function ChatPage() {
     setStaff(list.filter((p) => p.id !== user?.id));
     setProfileById(Object.fromEntries(list.map((p) => [p.id, p])));
   }
-  async function loadClients() {
-    const { data } = await supabase.from("clients").select("id, company_name").order("company_name");
-    setClients(data ?? []);
-  }
-  useEffect(() => { loadChannels(); loadDirectory(); loadClients(); }, []);
+  useEffect(() => { loadChannels(); loadDirectory(); }, []);
 
   // pick a sensible default channel once loaded
   useEffect(() => {
@@ -107,37 +101,20 @@ function ChatPage() {
   }, [messages.length]);
 
   const active = useMemo(() => channels.find((c) => c.id === activeId) ?? null, [channels, activeId]);
-  const clientById = useMemo(() => Object.fromEntries(clients.map((c) => [c.id, c.company_name])), [clients]);
 
   function channelLabel(c: Channel) {
     if (c.kind === "team") return "Team Chat";
-    if (c.kind === "client") return clientById[c.client_id ?? ""] ?? "Client channel";
     return c.name ?? "Direct message";
   }
   function channelIcon(c: Channel) {
     if (c.kind === "team") return <Hash className="h-4 w-4" />;
-    if (c.kind === "client") return <Building2 className="h-4 w-4" />;
     return <Users2 className="h-4 w-4" />;
   }
 
   const teamChannel = channels.find((c) => c.kind === "team");
-  const clientChannels = channels.filter((c) => c.kind === "client");
   const dmChannels = channels.filter((c) => c.kind === "dm" || c.kind === "group");
 
   // ---- actions -------------------------------------------------------------
-  async function openOrCreateClientChannel(clientId: string) {
-    const existing = channels.find((c) => c.kind === "client" && c.client_id === clientId);
-    if (existing) { setActiveId(existing.id); setPickerOpen(null); return; }
-    const { data, error } = await supabase
-      .from("chat_channels")
-      .insert({ kind: "client", client_id: clientId, created_by: user!.id })
-      .select("*").single();
-    if (error) { toast.error(error.message); return; }
-    setChannels((prev) => [...prev, data as Channel]);
-    setActiveId((data as Channel).id);
-    setPickerOpen(null);
-  }
-
   async function openOrCreateDm(otherUserId: string) {
     // Look for an existing 1:1 with exactly these two members.
     const { data: mine } = await supabase.from("chat_channel_members").select("channel_id").eq("user_id", user!.id);
@@ -146,7 +123,7 @@ function ChatPage() {
       const { data: theirs } = await supabase.from("chat_channel_members").select("channel_id").eq("user_id", otherUserId).in("channel_id", candidateIds);
       for (const row of theirs ?? []) {
         const c = channels.find((ch) => ch.id === (row as any).channel_id && ch.kind === "dm");
-        if (c) { setActiveId(c.id); setPickerOpen(null); return; }
+        if (c) { setActiveId(c.id); setPickerOpen(false); return; }
       }
     }
     const { data: newChannel, error } = await supabase
@@ -160,7 +137,7 @@ function ChatPage() {
     if (memErr) { toast.error(memErr.message); return; }
     setChannels((prev) => [...prev, newChannel as Channel]);
     setActiveId(channelId);
-    setPickerOpen(null);
+    setPickerOpen(false);
   }
 
   async function send() {
@@ -205,13 +182,7 @@ function ChatPage() {
             <SidebarItem active={activeId === teamChannel.id} onClick={() => setActiveId(teamChannel.id)} icon={<Hash className="h-4 w-4" />} label="Team Chat" />
           )}
 
-          <SidebarSection label="Client channels" onAdd={() => setPickerOpen("client")} />
-          {clientChannels.map((c) => (
-            <SidebarItem key={c.id} active={activeId === c.id} onClick={() => setActiveId(c.id)} icon={<Building2 className="h-4 w-4" />} label={channelLabel(c)} />
-          ))}
-          {clientChannels.length === 0 && <div className="px-4 py-1 text-xs text-muted-foreground">No client channels yet</div>}
-
-          <SidebarSection label="Direct messages" onAdd={() => setPickerOpen("dm")} />
+          <SidebarSection label="Direct messages" onAdd={() => setPickerOpen(true)} />
           {dmChannels.map((c) => (
             <SidebarItem key={c.id} active={activeId === c.id} onClick={() => setActiveId(c.id)} icon={<Users2 className="h-4 w-4" />} label={channelLabel(c)} />
           ))}
@@ -284,20 +255,9 @@ function ChatPage() {
         )}
       </div>
 
-      {/* Client channel picker */}
-      {pickerOpen === "client" && (
-        <Picker title="Open a client channel" onClose={() => setPickerOpen(null)}>
-          {clients.map((c) => (
-            <button key={c.id} onClick={() => openOrCreateClientChannel(c.id)} className="w-full text-left px-3 py-2 rounded-md hover:bg-muted text-sm flex items-center gap-2">
-              <Building2 className="h-4 w-4 text-muted-foreground" /> {c.company_name}
-            </button>
-          ))}
-        </Picker>
-      )}
-
       {/* DM picker */}
-      {pickerOpen === "dm" && (
-        <Picker title="Message a colleague" onClose={() => setPickerOpen(null)}>
+      {pickerOpen && (
+        <Picker title="Message a colleague" onClose={() => setPickerOpen(false)}>
           {staff.map((p) => (
             <button key={p.id} onClick={() => openOrCreateDm(p.id)} className="w-full text-left px-3 py-2 rounded-md hover:bg-muted text-sm flex items-center gap-2">
               <div className="h-6 w-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[10px] font-semibold">{initials(p.full_name)}</div>
