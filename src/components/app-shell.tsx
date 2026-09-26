@@ -55,12 +55,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const items = [...visible(NAV), ...visible(ADMIN_NAV)];
 
   return (
-    <div className="min-h-screen flex bg-background">
-      {/* Sidebar */}
+    <div className="min-h-screen bg-background">
+      {/* Sidebar — always position: fixed to the viewport, at every breakpoint.
+          It is intentionally taken out of the document flow entirely so no
+          page's content height, scroll container, or layout can drag it
+          along when the page scrolls. The main column below is simply
+          offset by the sidebar's width via margin-left on desktop. */}
       <aside
-        className={`fixed lg:sticky lg:top-0 inset-y-0 left-0 z-40 w-64 h-screen bg-sidebar text-sidebar-foreground flex-col transition-transform ${
+        className={`fixed inset-y-0 left-0 z-40 w-64 h-screen bg-sidebar text-sidebar-foreground flex flex-col transition-transform ${
           open ? "translate-x-0" : "-translate-x-full"
-        } lg:translate-x-0 lg:flex flex`}
+        } lg:translate-x-0`}
       >
         <div className="px-5 py-5 border-b border-sidebar-border">
           <div className="text-base font-bold tracking-tight leading-tight">G.K Nahashon</div>
@@ -110,8 +114,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="fixed inset-0 bg-black/40 z-30 lg:hidden" onClick={() => setOpen(false)} />
       )}
 
-      {/* Main */}
-      <div className="flex-1 flex flex-col min-w-0">
+      {/* Main — offset by the sidebar's width on desktop; the sidebar is
+          fixed, not a flex sibling, so nothing here can pull it along. */}
+      <div className="flex flex-col min-h-screen lg:ml-64">
         <header className="h-14 border-b bg-card flex items-center px-4 gap-3 sticky top-0 z-20">
           <button
             className="lg:hidden p-2 -ml-2 rounded-md hover:bg-muted"
