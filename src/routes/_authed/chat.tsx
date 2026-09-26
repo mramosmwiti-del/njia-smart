@@ -116,27 +116,10 @@ function ChatPage() {
 
   // ---- actions -------------------------------------------------------------
   async function openOrCreateDm(otherUserId: string) {
-    // Look for an existing 1:1 with exactly these two members.
-    const { data: mine } = await supabase.from("chat_channel_members").select("channel_id").eq("user_id", user!.id);
-    const candidateIds = (mine ?? []).map((m: any) => m.channel_id);
-    if (candidateIds.length) {
-      const { data: theirs } = await supabase.from("chat_channel_members").select("channel_id").eq("user_id", otherUserId).in("channel_id", candidateIds);
-      for (const row of theirs ?? []) {
-        const c = channels.find((ch) => ch.id === (row as any).channel_id && ch.kind === "dm");
-        if (c) { setActiveId(c.id); setPickerOpen(false); return; }
-      }
-    }
-    const { data: newChannel, error } = await supabase
-      .from("chat_channels").insert({ kind: "dm", created_by: user!.id }).select("*").single();
+    const { data: channelId, error } = await supabase.rpc("get_or_create_dm", { _other_user_id: otherUserId });
     if (error) { toast.error(error.message); return; }
-    const channelId = (newChannel as Channel).id;
-    const { error: memErr } = await supabase.from("chat_channel_members").insert([
-      { channel_id: channelId, user_id: user!.id },
-      { channel_id: channelId, user_id: otherUserId },
-    ]);
-    if (memErr) { toast.error(memErr.message); return; }
-    setChannels((prev) => [...prev, newChannel as Channel]);
-    setActiveId(channelId);
+    await loadChannels();
+    setActiveId(channelId as string);
     setPickerOpen(false);
   }
 
