@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
-import { Ticket, HardDrive, Wrench, AlertTriangle, Plus, X } from "lucide-react";
+import { Ticket, HardDrive, Wrench, AlertTriangle, Plus, X, Pencil, Trash2 } from "lucide-react";
 
 export const Route = createFileRoute("/_authed/ict-service-desk")({
   head: () => ({
@@ -19,6 +19,7 @@ const CATEGORIES = ["Hardware", "Software", "Network", "Access/Account", "Other"
 const PRIORITIES = ["Low", "Medium", "High", "Critical"];
 const STATUSES = ["New", "In Progress", "On Hold", "Resolved", "Closed"];
 const EMPTY_FORM = { title: "", description: "", category: CATEGORIES[0], priority: "Medium" };
+const EMPTY_ASSET_FORM = { id: "", name: "", description: "", quantity: "1", unit_cost: "", purchase_date: "", assigned_to: "" };
 
 const PRIORITY_COLORS: Record<string, string> = {
   Low: "bg-muted text-muted-foreground",
@@ -48,6 +49,17 @@ type Ticket = {
   created_at: string;
 };
 
+type Asset = {
+  id: string;
+  name: string;
+  description: string | null;
+  quantity: number;
+  unit_cost: number | null;
+  purchase_date: string | null;
+  assigned_to: string | null;
+  created_at: string;
+};
+
 function StatCard({ icon: Icon, label, value }: { icon: any; label: string; value: number }) {
   return (
     <div className="bg-card rounded-lg border p-4 h-full">
@@ -67,6 +79,7 @@ function IctServiceDesk() {
 
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [staff, setStaff] = useState<{ id: string; full_name: string | null }[]>([]);
+  const [allStaff, setAllStaff] = useState<{ id: string; full_name: string | null }[]>([]);
   const [openCount, setOpenCount] = useState(0);
   const [criticalCount, setCriticalCount] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -74,30 +87,41 @@ function IctServiceDesk() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
 
+  const [assets, setAssets] = useState<Asset[]>([]);
+  const [assetTotalQty, setAssetTotalQty] = useState(0);
+  const [assetFormOpen, setAssetFormOpen] = useState(false);
+  const [assetForm, setAssetForm] = useState(EMPTY_ASSET_FORM);
+  const [assetSaving, setAssetSaving] = useState(false);
+
   // RLS already scopes this correctly: regular staff only see tickets they
   // reported, full-access roles (Director/Admin) see every ticket — so a
   // plain select gives each viewer exactly the counts/rows they should see.
   async function load() {
     setLoading(true);
-    const [ticketsRes, openRes, criticalRes, staffRes] = await Promise.all([
+    const [ticketsRes, openRes, criticalRes, staffRes, assetsRes] = await Promise.all([
       supabase.from("ict_tickets").select("*").order("created_at", { ascending: false }),
       supabase.from("ict_tickets").select("id", { count: "exact", head: true }).not("status", "in", "(Resolved,Closed)"),
       supabase.from("ict_tickets").select("id", { count: "exact", head: true }).eq("priority", "Critical"),
       fullAccess ? supabase.from("profiles").select("id, full_name").order("full_name") : Promise.resolve({ data: [], error: null }),
+      // ict_assets is RLS-restricted to Director/Admin; this simply returns
+      // nothing for everyone else instead of erroring.
+      fullAccess ? supabase.from("ict_assets").select("*").order("name") : Promise.resolve({ data: [], error: null }),
     ]);
     if (ticketsRes.error) toast.error(ticketsRes.error.message);
+    if (assetsRes.error) toast.error(assetsRes.error.message);
     setTickets((ticketsRes.data as Ticket[]) ?? []);
     setOpenCount(openRes.count ?? 0);
     setCriticalCount(criticalRes.count ?? 0);
-    // Assignee list is limited to the currently-active ICT staff (Amos,
-    // Herman) rather than the whole directory. Matched by name for now —
-    // swap this for a dedicated role/tag once more ICT staff are added.
+    const directory = (staffRes.data as any[]) ?? [];
+    setAllStaff(directory);
+    // Ticket assignee list is limited to the currently-active ICT staff
+    // (Amos, Herman) rather than the whole directory. Matched by name for
+    // now — swap this for a dedicated role/tag once more ICT staff are added.
     const ictNames = ["amos", "herman"];
-    setStaff(
-      ((staffRes.data as any[]) ?? []).filter((p) =>
-        ictNames.some((n) => (p.full_name ?? "").toLowerCase().includes(n))
-      )
-    );
+    setStaff(directory.filter((p) => ictNames.some((n) => (p.full_name ?? "").toLowerCase().includes(n))));
+    const assetRows = (assetsRes.data as Asset[]) ?? [];
+    setAssets(assetRows);
+    setAssetTotalQty(assetRows.reduce((sum, a) => sum + (a.quantity ?? 0), 0));
     setLoading(false);
   }
   useEffect(() => { load(); }, []);
@@ -109,6 +133,50 @@ function IctServiceDesk() {
     const { error } = await supabase.from("ict_tickets").update(patch).eq("id", id);
     if (error) { toast.error(error.message); load(); return; }
     toast.success("Ticket updated");
+  }
+
+  function openNewAsset() { setAssetForm(EMPTY_ASSET_FORM); setAssetFormOpen(true); }
+  function openEditAsset(a: Asset) {
+    setAssetForm({
+      id: a.id,
+      name: a.name,
+      description: a.description ?? "",
+      quantity: String(a.quantity ?? 1),
+      unit_cost: a.unit_cost != null ? String(a.unit_cost) : "",
+      purchase_date: a.purchase_date ?? "",
+      assigned_to: a.assigned_to ?? "",
+    });
+    setAssetFormOpen(true);
+  }
+
+  // ict_assets RLS restricts insert/update/delete to Director/Admin ("full"
+  // rank on ict_service_desk) regardless of what the UI shows.
+  async function saveAsset(e: React.FormEvent) {
+    e.preventDefault();
+    if (!assetForm.name.trim() || !user) return;
+    setAssetSaving(true);
+    const payload = {
+      name: assetForm.name.trim(),
+      description: assetForm.description.trim() || null,
+      quantity: Number(assetForm.quantity) || 1,
+      unit_cost: assetForm.unit_cost ? Number(assetForm.unit_cost) : null,
+      purchase_date: assetForm.purchase_date || null,
+      assigned_to: assetForm.assigned_to || null,
+    };
+    const { error } = assetForm.id
+      ? await supabase.from("ict_assets").update(payload).eq("id", assetForm.id)
+      : await supabase.from("ict_assets").insert({ ...payload, created_by: user.id });
+    setAssetSaving(false);
+    if (error) { toast.error(error.message); return; }
+    toast.success(assetForm.id ? "Asset updated" : "Asset added");
+    setAssetFormOpen(false);
+    load();
+  }
+
+  async function deleteAsset(id: string) {
+    if (!confirm("Delete this asset?")) return;
+    const { error } = await supabase.from("ict_assets").delete().eq("id", id);
+    if (error) toast.error(error.message); else { toast.success("Asset deleted"); load(); }
   }
 
   async function submitTicket(e: React.FormEvent) {
@@ -153,7 +221,7 @@ function IctServiceDesk() {
 
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
         <StatCard icon={Ticket} label="Open Tickets" value={openCount} />
-        {fullAccess && <StatCard icon={HardDrive} label="Assets" value={0} />}
+        {fullAccess && <StatCard icon={HardDrive} label="Assets" value={assetTotalQty} />}
         <StatCard icon={Wrench} label="Active Maintenance" value={0} />
         <StatCard icon={AlertTriangle} label="Critical Issues" value={criticalCount} />
       </div>
@@ -219,6 +287,61 @@ function IctServiceDesk() {
         </div>
       </div>
 
+      {fullAccess && (
+        <div className="bg-card border rounded-lg overflow-hidden">
+          <div className="px-4 py-3 border-b flex items-center justify-between">
+            <span className="text-sm font-medium">IT Assets</span>
+            <button
+              onClick={openNewAsset}
+              className="h-8 px-3 rounded-md bg-primary text-primary-foreground text-xs inline-flex items-center gap-1.5"
+            >
+              <Plus className="h-3.5 w-3.5" /> Add asset
+            </button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/40 text-left text-xs text-muted-foreground border-b">
+                <tr>
+                  <th className="py-2 px-3">Item</th>
+                  <th>Qty</th>
+                  <th>Unit cost</th>
+                  <th>Total</th>
+                  <th>Date bought</th>
+                  <th>Assigned to</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {assets.length === 0 && (
+                  <tr><td colSpan={7} className="py-10 text-center text-muted-foreground">No assets recorded yet.</td></tr>
+                )}
+                {assets.map((a) => {
+                  const assignee = allStaff.find((s) => s.id === a.assigned_to);
+                  const total = a.unit_cost != null ? a.unit_cost * a.quantity : null;
+                  return (
+                    <tr key={a.id} className="border-b last:border-0 hover:bg-muted/30">
+                      <td className="py-2 px-3">
+                        <div className="font-medium">{a.name}</div>
+                        {a.description && <div className="text-xs text-muted-foreground">{a.description}</div>}
+                      </td>
+                      <td className="text-xs">{a.quantity}</td>
+                      <td className="text-xs">{a.unit_cost != null ? a.unit_cost.toLocaleString("en-KE", { style: "currency", currency: "KES" }) : "—"}</td>
+                      <td className="text-xs">{total != null ? total.toLocaleString("en-KE", { style: "currency", currency: "KES" }) : "—"}</td>
+                      <td className="text-xs text-muted-foreground">{a.purchase_date ? new Date(a.purchase_date).toLocaleDateString("en-KE", { day: "2-digit", month: "short", year: "numeric" }) : "—"}</td>
+                      <td className="text-xs">{assignee?.full_name ?? "Office (shared)"}</td>
+                      <td className="pr-2 text-right space-x-1 whitespace-nowrap">
+                        <button onClick={() => openEditAsset(a)} title="Edit" className="p-1 hover:text-primary"><Pencil className="h-3.5 w-3.5" /></button>
+                        <button onClick={() => deleteAsset(a.id)} title="Delete" className="p-1 hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {formOpen && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setFormOpen(false)}>
           <form onClick={(e) => e.stopPropagation()} onSubmit={submitTicket} className="bg-card w-full max-w-md rounded-lg p-6 space-y-3">
@@ -250,6 +373,64 @@ function IctServiceDesk() {
             </div>
             <button disabled={saving} className="w-full h-10 rounded-md bg-primary text-primary-foreground text-sm font-medium disabled:opacity-50">
               {saving ? "Submitting…" : "Submit ticket"}
+            </button>
+          </form>
+        </div>
+      )}
+
+      {assetFormOpen && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setAssetFormOpen(false)}>
+          <form onClick={(e) => e.stopPropagation()} onSubmit={saveAsset} className="bg-card w-full max-w-md rounded-lg p-6 space-y-3">
+            <div className="flex justify-between">
+              <h2 className="text-lg font-semibold">{assetForm.id ? "Edit asset" : "Add asset"}</h2>
+              <button type="button" onClick={() => setAssetFormOpen(false)}><X className="h-4 w-4" /></button>
+            </div>
+            <input
+              required
+              placeholder="Item name (e.g. Dell Latitude laptop, HP LaserJet printer)"
+              value={assetForm.name}
+              onChange={(e) => setAssetForm({ ...assetForm, name: e.target.value })}
+              className="w-full h-9 px-3 rounded-md border bg-background text-sm"
+            />
+            <textarea
+              placeholder="Description"
+              value={assetForm.description}
+              onChange={(e) => setAssetForm({ ...assetForm, description: e.target.value })}
+              rows={2}
+              className="w-full px-3 py-2 rounded-md border bg-background text-sm"
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                type="number" min={1} required
+                placeholder="Quantity"
+                value={assetForm.quantity}
+                onChange={(e) => setAssetForm({ ...assetForm, quantity: e.target.value })}
+                className="h-9 px-3 rounded-md border bg-background text-sm"
+              />
+              <input
+                type="number" min={0} step="0.01"
+                placeholder="Unit cost (KES)"
+                value={assetForm.unit_cost}
+                onChange={(e) => setAssetForm({ ...assetForm, unit_cost: e.target.value })}
+                className="h-9 px-3 rounded-md border bg-background text-sm"
+              />
+              <input
+                type="date"
+                value={assetForm.purchase_date}
+                onChange={(e) => setAssetForm({ ...assetForm, purchase_date: e.target.value })}
+                className="h-9 px-3 rounded-md border bg-background text-sm"
+              />
+              <select
+                value={assetForm.assigned_to}
+                onChange={(e) => setAssetForm({ ...assetForm, assigned_to: e.target.value })}
+                className="h-9 px-3 rounded-md border bg-background text-sm"
+              >
+                <option value="">Office (shared)</option>
+                {allStaff.map((s) => <option key={s.id} value={s.id}>{s.full_name ?? "Unnamed"}</option>)}
+              </select>
+            </div>
+            <button disabled={assetSaving} className="w-full h-10 rounded-md bg-primary text-primary-foreground text-sm font-medium disabled:opacity-50">
+              {assetSaving ? "Saving…" : assetForm.id ? "Save changes" : "Add asset"}
             </button>
           </form>
         </div>
