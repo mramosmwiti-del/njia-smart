@@ -89,7 +89,15 @@ function IctServiceDesk() {
     setTickets((ticketsRes.data as Ticket[]) ?? []);
     setOpenCount(openRes.count ?? 0);
     setCriticalCount(criticalRes.count ?? 0);
-    setStaff((staffRes.data as any[]) ?? []);
+    // Assignee list is limited to the currently-active ICT staff (Amos,
+    // Herman) rather than the whole directory. Matched by name for now —
+    // swap this for a dedicated role/tag once more ICT staff are added.
+    const ictNames = ["amos", "herman"];
+    setStaff(
+      ((staffRes.data as any[]) ?? []).filter((p) =>
+        ictNames.some((n) => (p.full_name ?? "").toLowerCase().includes(n))
+      )
+    );
     setLoading(false);
   }
   useEffect(() => { load(); }, []);
