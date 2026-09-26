@@ -58,7 +58,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen flex bg-background">
       {/* Sidebar */}
       <aside
-        className={`fixed lg:static inset-y-0 left-0 z-40 w-64 bg-sidebar text-sidebar-foreground flex-col transition-transform ${
+        className={`fixed lg:sticky lg:top-0 inset-y-0 left-0 z-40 w-64 h-screen bg-sidebar text-sidebar-foreground flex-col transition-transform ${
           open ? "translate-x-0" : "-translate-x-full"
         } lg:translate-x-0 lg:flex flex`}
       >
