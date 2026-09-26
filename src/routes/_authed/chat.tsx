@@ -51,6 +51,7 @@ function ChatPage() {
   const [sending, setSending] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [unreadChannelIds, setUnreadChannelIds] = useState<Set<string>>(new Set());
+  const [dmOtherUserId, setDmOtherUserId] = useState<Record<string, string>>({});
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // ---- load sidebar data --------------------------------------------------
@@ -65,6 +66,25 @@ function ChatPage() {
     setProfileById(Object.fromEntries(list.map((p) => [p.id, p])));
   }
   useEffect(() => { loadChannels(); loadDirectory(); }, []);
+
+  // ---- who's on the other side of each DM (so the sidebar can show a
+  // real name instead of the generic "Direct message" label) -------------
+  async function loadDmOtherUsers(dmIds: string[]) {
+    if (!user || dmIds.length === 0) return;
+    const { data } = await supabase
+      .from("chat_channel_members")
+      .select("channel_id, user_id")
+      .in("channel_id", dmIds);
+    const byChannel: Record<string, string> = {};
+    (data ?? []).forEach((m: any) => {
+      if (m.user_id !== user.id) byChannel[m.channel_id] = m.user_id;
+    });
+    setDmOtherUserId((prev) => ({ ...prev, ...byChannel }));
+  }
+  useEffect(() => {
+    const dmIds = channels.filter((c) => c.kind === "dm").map((c) => c.id);
+    if (dmIds.length) loadDmOtherUsers(dmIds);
+  }, [channels, user?.id]);
 
   // ---- unread indicators (driven by the chat_message notifications the
   // db trigger already creates — no extra schema needed) -----------------
@@ -142,7 +162,12 @@ function ChatPage() {
 
   function channelLabel(c: Channel) {
     if (c.kind === "team") return "Team Chat";
-    return c.name ?? "Direct message";
+    if (c.kind === "dm") {
+      const otherId = dmOtherUserId[c.id];
+      const name = otherId ? profileById[otherId]?.full_name : null;
+      return name ?? c.name ?? "Direct message";
+    }
+    return c.name ?? "Group chat";
   }
   function channelIcon(c: Channel) {
     if (c.kind === "team") return <Hash className="h-4 w-4" />;
