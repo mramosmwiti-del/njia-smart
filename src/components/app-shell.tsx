@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Users, ClipboardCheck, Receipt, Lightbulb,
   ListTodo, Megaphone, FolderOpen, CalendarDays, UserCog, Settings,
   LogOut, Menu, History, Wallet, Monitor, Landmark, Wallet2, Briefcase,
-  Contact, MessageSquare,
+  Contact, MessageSquare, Headset,
 } from "lucide-react";
 import { useState } from "react";
 import { NotificationBell } from "./notification-bell";
@@ -23,6 +23,7 @@ const NAV = [
   { to: "/payroll-management", label: "Payroll Management", icon: Wallet2 },
   { to: "/financial-business-management", label: "Financial Business Mgmt", icon: Briefcase },
   { to: "/ict", label: "ICT", icon: Monitor },
+  { to: "/ict-service-desk", label: "ICT Service Desk", icon: Headset },
   { to: "/tasks", label: "Tasks", icon: ListTodo },
   { to: "/accounts", label: "Accounts", icon: Wallet },
   { to: "/documents", label: "Documents", icon: FolderOpen },
