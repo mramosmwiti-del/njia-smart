@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Users, ClipboardCheck, Receipt, Lightbulb,
   ListTodo, Megaphone, FolderOpen, CalendarDays, UserCog, Settings,
   LogOut, Menu, History, Wallet, Monitor, Landmark, Wallet2, Briefcase,
-  Contact,
+  Contact, MessageSquare,
 } from "lucide-react";
 import { useState } from "react";
 import { NotificationBell } from "./notification-bell";
@@ -13,6 +13,7 @@ import { NAV_MODULE_BY_PATH } from "@/lib/permissions";
 
 const NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/chat", label: "Chat", icon: MessageSquare },
   { to: "/clients", label: "Clients", icon: Users },
   { to: "/audit", label: "Audit", icon: ClipboardCheck },
   { to: "/tax", label: "Tax", icon: Receipt },
