@@ -50,6 +50,7 @@ function ChatPage() {
   const [file, setFile] = useState<File | null>(null);
   const [sending, setSending] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [unreadChannelIds, setUnreadChannelIds] = useState<Set<string>>(new Set());
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // ---- load sidebar data --------------------------------------------------
@@ -64,6 +65,42 @@ function ChatPage() {
     setProfileById(Object.fromEntries(list.map((p) => [p.id, p])));
   }
   useEffect(() => { loadChannels(); loadDirectory(); }, []);
+
+  // ---- unread indicators (driven by the chat_message notifications the
+  // db trigger already creates — no extra schema needed) -----------------
+  async function loadUnread() {
+    if (!user) return;
+    const { data } = await supabase.from("notifications").select("link")
+      .eq("user_id", user.id).eq("type", "chat_message").is("read_at", null);
+    const ids = new Set<string>();
+    (data ?? []).forEach((n: any) => {
+      const m = n.link?.match(/channel=([0-9a-f-]+)/i);
+      if (m) ids.add(m[1]);
+    });
+    setUnreadChannelIds(ids);
+  }
+  useEffect(() => { loadUnread(); }, [user?.id]);
+  useEffect(() => {
+    if (!user) return;
+    const ch = supabase
+      .channel("chat-unread-list-" + user.id)
+      .on("postgres_changes", { event: "*", schema: "public", table: "notifications", filter: `user_id=eq.${user.id}` }, loadUnread)
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [user?.id]);
+
+  async function markChannelRead(channelId: string) {
+    if (!user) return;
+    await supabase.from("notifications").update({ read_at: new Date().toISOString() })
+      .eq("user_id", user.id).eq("type", "chat_message").is("read_at", null)
+      .ilike("link", `%channel=${channelId}%`);
+    setUnreadChannelIds((prev) => {
+      if (!prev.has(channelId)) return prev;
+      const next = new Set(prev);
+      next.delete(channelId);
+      return next;
+    });
+  }
 
   // pick a sensible default channel once loaded
   useEffect(() => {
@@ -92,6 +129,7 @@ function ChatPage() {
         { channel_id: activeId, user_id: user.id, last_read_at: new Date().toISOString() },
         { onConflict: "channel_id,user_id" },
       );
+      markChannelRead(activeId);
     }
     return () => { supabase.removeChannel(ch); };
   }, [activeId, user?.id]);
@@ -162,12 +200,12 @@ function ChatPage() {
         </div>
         <div className="flex-1 overflow-y-auto py-2">
           {teamChannel && (
-            <SidebarItem active={activeId === teamChannel.id} onClick={() => setActiveId(teamChannel.id)} icon={<Hash className="h-4 w-4" />} label="Team Chat" />
+            <SidebarItem active={activeId === teamChannel.id} onClick={() => setActiveId(teamChannel.id)} icon={<Hash className="h-4 w-4" />} label="Team Chat" unread={unreadChannelIds.has(teamChannel.id)} />
           )}
 
           <SidebarSection label="Direct messages" onAdd={() => setPickerOpen(true)} />
           {dmChannels.map((c) => (
-            <SidebarItem key={c.id} active={activeId === c.id} onClick={() => setActiveId(c.id)} icon={<Users2 className="h-4 w-4" />} label={channelLabel(c)} />
+            <SidebarItem key={c.id} active={activeId === c.id} onClick={() => setActiveId(c.id)} icon={<Users2 className="h-4 w-4" />} label={channelLabel(c)} unread={unreadChannelIds.has(c.id)} />
           ))}
           {dmChannels.length === 0 && <div className="px-4 py-1 text-xs text-muted-foreground">No conversations yet</div>}
         </div>
@@ -253,13 +291,14 @@ function ChatPage() {
   );
 }
 
-function SidebarItem({ active, onClick, icon, label }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string }) {
+function SidebarItem({ active, onClick, icon, label, unread }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string; unread?: boolean }) {
   return (
     <button
       onClick={onClick}
       className={`w-full flex items-center gap-2 px-4 py-2 text-sm text-left ${active ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted text-foreground/90"}`}
     >
-      {icon} <span className="truncate">{label}</span>
+      {icon} <span className="truncate flex-1">{label}</span>
+      {unread && <span className="h-2 w-2 rounded-full bg-accent shrink-0" />}
     </button>
   );
 }
