@@ -37,7 +37,8 @@ export type ModuleKey =
   | "team"
   | "activity"
   | "settings"
-  | "notifications";
+  | "notifications"
+  | "chat";
 
 // Rank used to resolve a user's effective access when they hold multiple
 // roles: the highest-ranked level across all their roles wins.
@@ -47,7 +48,7 @@ const ALL_MODULES: ModuleKey[] = [
   "dashboard", "clients", "audit", "tax", "advisory",
   "outsourced_accounting", "payroll_management", "financial_business_management",
   "ict", "tasks", "accounts", "documents", "calendar", "announcements",
-  "hr", "team", "activity", "settings", "notifications",
+  "hr", "team", "activity", "settings", "notifications", "chat",
 ];
 
 function levels(full: ModuleKey[] = [], view: ModuleKey[] = [], assigned: ModuleKey[] = []): Record<ModuleKey, AccessLevel> {
@@ -59,7 +60,7 @@ function levels(full: ModuleKey[] = [], view: ModuleKey[] = [], assigned: Module
   return out;
 }
 
-const EVERYONE_FULL: ModuleKey[] = ["announcements", "notifications"];
+const EVERYONE_FULL: ModuleKey[] = ["announcements", "notifications", "chat"];
 
 const ASSISTANT_FULL: ModuleKey[] = ["hr", "tasks", "settings", ...EVERYONE_FULL];
 // Everything else for assistants/interns is "assigned": they only see what
@@ -212,4 +213,5 @@ export const NAV_MODULE_BY_PATH: Record<string, ModuleKey> = {
   "/team": "team",
   "/activity": "activity",
   "/settings": "settings",
+  "/chat": "chat",
 };
