@@ -28,6 +28,7 @@ export type ModuleKey =
   | "payroll_management"
   | "financial_business_management"
   | "ict"
+  | "ict_service_desk"
   | "tasks"
   | "accounts"
   | "documents"
@@ -47,7 +48,7 @@ const RANK: Record<AccessLevel, number> = { none: 0, assigned: 1, view: 2, full:
 const ALL_MODULES: ModuleKey[] = [
   "dashboard", "clients", "audit", "tax", "advisory",
   "outsourced_accounting", "payroll_management", "financial_business_management",
-  "ict", "tasks", "accounts", "documents", "calendar", "announcements",
+  "ict", "ict_service_desk", "tasks", "accounts", "documents", "calendar", "announcements",
   "hr", "team", "activity", "settings", "notifications", "chat",
 ];
 
@@ -133,6 +134,13 @@ for (const role of Object.keys(ROLE_ACCESS) as AppRole[]) {
   ROLE_ACCESS[role].tasks = role === "director" || role === "admin" ? "full" : "assigned";
 }
 
+// ICT Service Desk is a separate module from ICT (projects), but shares the
+// same access rules for now: whatever access a role has on "ict", it gets
+// the same on "ict_service_desk".
+for (const role of Object.keys(ROLE_ACCESS) as AppRole[]) {
+  ROLE_ACCESS[role].ict_service_desk = ROLE_ACCESS[role].ict;
+}
+
 /** Highest access level a user has on a module, across all their roles. */
 export function getModuleAccess(roles: AppRole[], moduleKey: ModuleKey): AccessLevel {
   let best: AccessLevel = "none";
@@ -204,6 +212,7 @@ export const NAV_MODULE_BY_PATH: Record<string, ModuleKey> = {
   "/payroll-management": "payroll_management",
   "/financial-business-management": "financial_business_management",
   "/ict": "ict",
+  "/ict-service-desk": "ict_service_desk",
   "/tasks": "tasks",
   "/accounts": "accounts",
   "/documents": "documents",
