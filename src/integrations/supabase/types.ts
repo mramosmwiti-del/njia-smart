@@ -1163,6 +1163,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      get_or_create_dm: { Args: { _other_user_id: string }; Returns: string }
       is_admin: { Args: { _user_id: string }; Returns: boolean }
       is_staff: { Args: { _user_id: string }; Returns: boolean }
       next_invoice_number: { Args: never; Returns: string }
