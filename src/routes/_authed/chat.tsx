@@ -203,7 +203,7 @@ function ChatPage() {
             <SidebarItem active={activeId === teamChannel.id} onClick={() => setActiveId(teamChannel.id)} icon={<Hash className="h-4 w-4" />} label="Team Chat" unread={unreadChannelIds.has(teamChannel.id)} />
           )}
 
-          <SidebarSection label="Direct messages" onAdd={() => setPickerOpen(true)} />
+          <SidebarSection label="Direct messages" onAdd={() => setPickerOpen(true)} unread={dmChannels.some((c) => unreadChannelIds.has(c.id))} />
           {dmChannels.map((c) => (
             <SidebarItem key={c.id} active={activeId === c.id} onClick={() => setActiveId(c.id)} icon={<Users2 className="h-4 w-4" />} label={channelLabel(c)} unread={unreadChannelIds.has(c.id)} />
           ))}
@@ -295,7 +295,13 @@ function SidebarItem({ active, onClick, icon, label, unread }: { active: boolean
   return (
     <button
       onClick={onClick}
-      className={`w-full flex items-center gap-2 px-4 py-2 text-sm text-left ${active ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted text-foreground/90"}`}
+      className={`w-full flex items-center gap-2 px-4 py-2 text-sm text-left ${
+        active
+          ? "bg-primary/10 text-primary font-medium"
+          : unread
+            ? "bg-accent/10 text-foreground font-semibold hover:bg-accent/15"
+            : "hover:bg-muted text-foreground/90"
+      }`}
     >
       {icon} <span className="truncate flex-1">{label}</span>
       {unread && <span className="h-2 w-2 rounded-full bg-accent shrink-0" />}
@@ -303,10 +309,13 @@ function SidebarItem({ active, onClick, icon, label, unread }: { active: boolean
   );
 }
 
-function SidebarSection({ label, onAdd }: { label: string; onAdd: () => void }) {
+function SidebarSection({ label, onAdd, unread }: { label: string; onAdd: () => void; unread?: boolean }) {
   return (
     <div className="flex items-center justify-between px-4 pt-4 pb-1">
-      <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</span>
+      <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        {label}
+        {unread && <span className="h-1.5 w-1.5 rounded-full bg-accent" />}
+      </span>
       <button onClick={onAdd} className="p-0.5 rounded hover:bg-muted"><Plus className="h-3.5 w-3.5 text-muted-foreground" /></button>
     </div>
   );
