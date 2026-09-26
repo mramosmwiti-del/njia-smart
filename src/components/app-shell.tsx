@@ -10,6 +10,7 @@ import { useState } from "react";
 import { NotificationBell } from "./notification-bell";
 import { PageTransition } from "./page-transition";
 import { NAV_MODULE_BY_PATH } from "@/lib/permissions";
+import { useChatUnreadCount } from "@/hooks/use-chat-unread-count";
 
 const NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -41,6 +42,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [open, setOpen] = useState(false);
+  const chatUnread = useChatUnreadCount();
 
   // Only show a nav entry when the user actually has rights to that module —
   // no rights means no visibility, not just a blocked click-through.
@@ -80,6 +82,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               >
                 <Icon className="h-4 w-4" />
                 {label}
+                {to === "/chat" && chatUnread > 0 && (
+                  <span className="ml-auto h-2 w-2 rounded-full bg-accent shrink-0" />
+                )}
               </Link>
             );
           })}
