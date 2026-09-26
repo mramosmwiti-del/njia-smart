@@ -179,6 +179,12 @@ function IctServiceDesk() {
     if (error) toast.error(error.message); else { toast.success("Asset deleted"); load(); }
   }
 
+  async function deleteTicket(id: string) {
+    if (!confirm("Delete this ticket?")) return;
+    const { error } = await supabase.from("ict_tickets").delete().eq("id", id);
+    if (error) toast.error(error.message); else { toast.success("Ticket deleted"); load(); }
+  }
+
   async function submitTicket(e: React.FormEvent) {
     e.preventDefault();
     if (!form.title.trim() || !user) return;
@@ -240,11 +246,12 @@ function IctServiceDesk() {
                 <th>Status</th>
                 {fullAccess && <th>Assignee</th>}
                 <th>Raised</th>
+                {fullAccess && <th></th>}
               </tr>
             </thead>
             <tbody>
               {!loading && tickets.length === 0 && (
-                <tr><td colSpan={fullAccess ? 6 : 5} className="py-10 text-center text-muted-foreground">No tickets yet.</td></tr>
+                <tr><td colSpan={fullAccess ? 7 : 5} className="py-10 text-center text-muted-foreground">No tickets yet.</td></tr>
               )}
               {tickets.map((t) => (
                 <tr key={t.id} className="border-b last:border-0 hover:bg-muted/30">
@@ -280,6 +287,11 @@ function IctServiceDesk() {
                     </td>
                   )}
                   <td className="text-xs text-muted-foreground">{new Date(t.created_at).toLocaleDateString("en-KE", { day: "2-digit", month: "short", year: "numeric" })}</td>
+                  {fullAccess && (
+                    <td className="pr-2 text-right">
+                      <button onClick={() => deleteTicket(t.id)} title="Delete" className="p-1 hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
