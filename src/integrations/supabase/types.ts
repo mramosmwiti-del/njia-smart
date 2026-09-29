@@ -421,6 +421,32 @@ export type Database = {
           },
         ]
       }
+      chat_message_hides: {
+        Row: {
+          created_at: string
+          message_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          message_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          message_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_message_hides_message_id_fkey"
+            columns: ["message_id"]
+            isOneToOne: false
+            referencedRelation: "chat_messages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       chat_messages: {
         Row: {
           attachment_name: string | null
@@ -526,6 +552,141 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "clients"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      client_obligation_contacts: {
+        Row: {
+          client_id: string
+          created_at: string
+          email: string | null
+          id: string
+          name: string
+          notes: string | null
+          phone: string | null
+          tax_type: string
+        }
+        Insert: {
+          client_id: string
+          created_at?: string
+          email?: string | null
+          id?: string
+          name: string
+          notes?: string | null
+          phone?: string | null
+          tax_type: string
+        }
+        Update: {
+          client_id?: string
+          created_at?: string
+          email?: string | null
+          id?: string
+          name?: string
+          notes?: string | null
+          phone?: string | null
+          tax_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_obligation_contacts_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_obligation_contacts_tax_type_fkey"
+            columns: ["tax_type"]
+            isOneToOne: false
+            referencedRelation: "tax_policies"
+            referencedColumns: ["tax_type"]
+          },
+        ]
+      }
+      client_obligation_logins: {
+        Row: {
+          client_id: string
+          login_email: string | null
+          login_password: string | null
+          tax_type: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          client_id: string
+          login_email?: string | null
+          login_password?: string | null
+          tax_type: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          client_id?: string
+          login_email?: string | null
+          login_password?: string | null
+          tax_type?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_obligation_logins_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_obligation_logins_tax_type_fkey"
+            columns: ["tax_type"]
+            isOneToOne: false
+            referencedRelation: "tax_policies"
+            referencedColumns: ["tax_type"]
+          },
+        ]
+      }
+      client_tax_obligations: {
+        Row: {
+          active: boolean
+          client_id: string
+          created_at: string
+          id: string
+          notes: string | null
+          tax_type: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          client_id: string
+          created_at?: string
+          id?: string
+          notes?: string | null
+          tax_type: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          client_id?: string
+          created_at?: string
+          id?: string
+          notes?: string | null
+          tax_type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_tax_obligations_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_tax_obligations_tax_type_fkey"
+            columns: ["tax_type"]
+            isOneToOne: false
+            referencedRelation: "tax_policies"
+            referencedColumns: ["tax_type"]
           },
         ]
       }
@@ -729,6 +890,176 @@ export type Database = {
           },
         ]
       }
+      hr_documents: {
+        Row: {
+          created_at: string
+          doc_type: string
+          employee_id: string
+          file_path: string
+          id: string
+          title: string
+          uploaded_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          doc_type?: string
+          employee_id: string
+          file_path: string
+          id?: string
+          title: string
+          uploaded_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          doc_type?: string
+          employee_id?: string
+          file_path?: string
+          id?: string
+          title?: string
+          uploaded_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_documents_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hr_employment: {
+        Row: {
+          bank_account: string | null
+          bank_name: string | null
+          date_hired: string | null
+          date_of_birth: string | null
+          employee_id: string
+          employee_no: string | null
+          employment_status: string
+          employment_type: string
+          gender: string | null
+          gross_salary: number | null
+          kra_pin: string | null
+          manager_id: string | null
+          national_id: string | null
+          next_of_kin_name: string | null
+          next_of_kin_phone: string | null
+          salary_currency: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          bank_account?: string | null
+          bank_name?: string | null
+          date_hired?: string | null
+          date_of_birth?: string | null
+          employee_id: string
+          employee_no?: string | null
+          employment_status?: string
+          employment_type?: string
+          gender?: string | null
+          gross_salary?: number | null
+          kra_pin?: string | null
+          manager_id?: string | null
+          national_id?: string | null
+          next_of_kin_name?: string | null
+          next_of_kin_phone?: string | null
+          salary_currency?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          bank_account?: string | null
+          bank_name?: string | null
+          date_hired?: string | null
+          date_of_birth?: string | null
+          employee_id?: string
+          employee_no?: string | null
+          employment_status?: string
+          employment_type?: string
+          gender?: string | null
+          gross_salary?: number | null
+          kra_pin?: string | null
+          manager_id?: string | null
+          national_id?: string | null
+          next_of_kin_name?: string | null
+          next_of_kin_phone?: string | null
+          salary_currency?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_employment_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_employment_manager_id_fkey"
+            columns: ["manager_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ict_assets: {
+        Row: {
+          assigned_to: string | null
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          name: string
+          purchase_date: string | null
+          quantity: number
+          unit_cost: number | null
+          updated_at: string
+        }
+        Insert: {
+          assigned_to?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          name: string
+          purchase_date?: string | null
+          quantity?: number
+          unit_cost?: number | null
+          updated_at?: string
+        }
+        Update: {
+          assigned_to?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          name?: string
+          purchase_date?: string | null
+          quantity?: number
+          unit_cost?: number | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      ict_service_desk_team: {
+        Row: {
+          created_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       invoice_items: {
         Row: {
           amount: number
@@ -841,6 +1172,103 @@ export type Database = {
           },
         ]
       }
+      leave_requests: {
+        Row: {
+          created_at: string
+          days: number
+          decided_at: string | null
+          decided_by: string | null
+          decision_notes: string | null
+          employee_id: string
+          end_date: string
+          id: string
+          leave_type_id: string
+          reason: string | null
+          start_date: string
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          days: number
+          decided_at?: string | null
+          decided_by?: string | null
+          decision_notes?: string | null
+          employee_id: string
+          end_date: string
+          id?: string
+          leave_type_id: string
+          reason?: string | null
+          start_date: string
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          days?: number
+          decided_at?: string | null
+          decided_by?: string | null
+          decision_notes?: string | null
+          employee_id?: string
+          end_date?: string
+          id?: string
+          leave_type_id?: string
+          reason?: string | null
+          start_date?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "leave_requests_decided_by_fkey"
+            columns: ["decided_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leave_requests_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leave_requests_leave_type_id_fkey"
+            columns: ["leave_type_id"]
+            isOneToOne: false
+            referencedRelation: "leave_types"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      leave_types: {
+        Row: {
+          active: boolean
+          annual_days: number
+          eligible_gender: string | null
+          id: string
+          name: string
+          paid: boolean
+          sort_order: number
+        }
+        Insert: {
+          active?: boolean
+          annual_days?: number
+          eligible_gender?: string | null
+          id?: string
+          name: string
+          paid?: boolean
+          sort_order?: number
+        }
+        Update: {
+          active?: boolean
+          annual_days?: number
+          eligible_gender?: string | null
+          id?: string
+          name?: string
+          paid?: boolean
+          sort_order?: number
+        }
+        Relationships: []
+      }
       notifications: {
         Row: {
           body: string | null
@@ -934,6 +1362,50 @@ export type Database = {
           },
         ]
       }
+      payslips: {
+        Row: {
+          created_at: string
+          deductions: Json
+          employee_id: string
+          file_path: string | null
+          gross_pay: number | null
+          id: string
+          net_pay: number | null
+          period: string
+          uploaded_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          deductions?: Json
+          employee_id: string
+          file_path?: string | null
+          gross_pay?: number | null
+          id?: string
+          net_pay?: number | null
+          period: string
+          uploaded_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          deductions?: Json
+          employee_id?: string
+          file_path?: string | null
+          gross_pay?: number | null
+          id?: string
+          net_pay?: number | null
+          period?: string
+          uploaded_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payslips_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -963,6 +1435,201 @@ export type Database = {
           phone?: string | null
         }
         Relationships: []
+      }
+      quick_links: {
+        Row: {
+          category: string
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          sort_order: number
+          title: string
+          updated_at: string
+          url: string
+        }
+        Insert: {
+          category?: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          sort_order?: number
+          title: string
+          updated_at?: string
+          url: string
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          sort_order?: number
+          title?: string
+          updated_at?: string
+          url?: string
+        }
+        Relationships: []
+      }
+      service_milestone_documents: {
+        Row: {
+          created_at: string
+          file_path: string
+          id: string
+          milestone_id: string
+          title: string
+          uploaded_by: string | null
+          verified: boolean
+          verified_at: string | null
+          verified_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          file_path: string
+          id?: string
+          milestone_id: string
+          title: string
+          uploaded_by?: string | null
+          verified?: boolean
+          verified_at?: string | null
+          verified_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          file_path?: string
+          id?: string
+          milestone_id?: string
+          title?: string
+          uploaded_by?: string | null
+          verified?: boolean
+          verified_at?: string | null
+          verified_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "service_milestone_documents_milestone_id_fkey"
+            columns: ["milestone_id"]
+            isOneToOne: false
+            referencedRelation: "service_milestones"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      service_milestones: {
+        Row: {
+          assigned_to: string | null
+          completed_at: string | null
+          created_at: string
+          done: boolean
+          due_date: string | null
+          id: string
+          notes: string | null
+          project_id: string
+          stage: string | null
+          title: string
+          verified: boolean
+          verified_at: string | null
+          verified_by: string | null
+        }
+        Insert: {
+          assigned_to?: string | null
+          completed_at?: string | null
+          created_at?: string
+          done?: boolean
+          due_date?: string | null
+          id?: string
+          notes?: string | null
+          project_id: string
+          stage?: string | null
+          title: string
+          verified?: boolean
+          verified_at?: string | null
+          verified_by?: string | null
+        }
+        Update: {
+          assigned_to?: string | null
+          completed_at?: string | null
+          created_at?: string
+          done?: boolean
+          due_date?: string | null
+          id?: string
+          notes?: string | null
+          project_id?: string
+          stage?: string | null
+          title?: string
+          verified?: boolean
+          verified_at?: string | null
+          verified_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "service_milestones_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "service_projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      service_projects: {
+        Row: {
+          client_id: string
+          closed_at: string | null
+          closed_by: string | null
+          closure_notes: string | null
+          created_at: string
+          description: string | null
+          due_date: string | null
+          id: string
+          module: string
+          stage: string
+          start_date: string | null
+          status: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          client_id: string
+          closed_at?: string | null
+          closed_by?: string | null
+          closure_notes?: string | null
+          created_at?: string
+          description?: string | null
+          due_date?: string | null
+          id?: string
+          module: string
+          stage?: string
+          start_date?: string | null
+          status?: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          client_id?: string
+          closed_at?: string | null
+          closed_by?: string | null
+          closure_notes?: string | null
+          created_at?: string
+          description?: string | null
+          due_date?: string | null
+          id?: string
+          module?: string
+          stage?: string
+          start_date?: string | null
+          status?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "service_projects_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       task_comments: {
         Row: {
@@ -1064,6 +1731,39 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      tax_policies: {
+        Row: {
+          active: boolean
+          cadence: string
+          due_day: number
+          label: string
+          sort_order: number
+          tax_type: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          active?: boolean
+          cadence?: string
+          due_day?: number
+          label: string
+          sort_order?: number
+          tax_type: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          active?: boolean
+          cadence?: string
+          due_day?: number
+          label?: string
+          sort_order?: number
+          tax_type?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
       }
       tax_return_assignees: {
         Row: {
