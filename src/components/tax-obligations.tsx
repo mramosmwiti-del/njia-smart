@@ -19,7 +19,7 @@ function money(n: number) {
   return "KES " + Number(n || 0).toLocaleString("en-KE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-export function TaxObligations({ clientId }: { clientId: string }) {
+export function TaxObligations({ clientId, hideAdd = false, reloadKey }: { clientId: string; hideAdd?: boolean; reloadKey?: unknown }) {
   const { user, isAdmin, canCreate, canDelete } = useAuth();
   const [rows, setRows] = useState<any[]>([]);
   const [policies, setPolicies] = useState<any[]>([]);
@@ -61,7 +61,7 @@ export function TaxObligations({ clientId }: { clientId: string }) {
     setDocs(byReturn);
     setInvoices(Object.fromEntries((inv.data ?? []).map((i: any) => [i.id, i])));
   }
-  useEffect(() => { load(); }, [clientId]);
+  useEffect(() => { load(); }, [clientId, reloadKey]);
 
   const byType = useMemo(() => {
     const groups: Record<string, { active: any[]; history: any[] }> = {};
@@ -172,11 +172,13 @@ export function TaxObligations({ clientId }: { clientId: string }) {
 
   return (
     <div className="space-y-3">
-      <div className="flex justify-end">
-        {canCreate("tax") && (
-          <Button size="sm" onClick={() => setAddOpen(true)}><Plus className="h-3.5 w-3.5 mr-1" />Add obligation</Button>
-        )}
-      </div>
+      {!hideAdd && (
+        <div className="flex justify-end">
+          {canCreate("tax") && (
+            <Button size="sm" onClick={() => setAddOpen(true)}><Plus className="h-3.5 w-3.5 mr-1" />Add obligation</Button>
+          )}
+        </div>
+      )}
 
       {types.length === 0 && (
         <div className="bg-card border rounded-lg p-8 text-center text-muted-foreground text-sm">No tax obligations yet.</div>
