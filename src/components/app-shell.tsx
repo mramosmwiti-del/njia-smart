@@ -14,6 +14,7 @@ import { NAV_MODULE_BY_PATH } from "@/lib/permissions";
 import { useChatUnreadCount } from "@/hooks/use-chat-unread-count";
 import { useNotificationSound } from "@/hooks/use-notification-sound";
 import { SoundToggle } from "./sound-toggle";
+import { CommandPalette } from "./command-palette";
 
 type NavLink = { to: string; label: string; icon: LucideIcon };
 type NavGroup = { label: string; icon: LucideIcon; children: NavLink[] };
@@ -211,6 +212,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {pathname.split("/").filter(Boolean)[0] || "Dashboard"}
           </h1>
           <div className="ml-auto flex items-center gap-2">
+            <CommandPalette pages={items.flatMap((i) => (isGroup(i) ? i.children : [i]))} />
             <SoundToggle />
             <NotificationBell />
           </div>
