@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { ClientAssignments } from "@/components/client-assignments";
 import { ObligationContacts } from "@/components/obligation-contacts";
+import { TaxObligations } from "@/components/tax-obligations";
 import { LastUpdated } from "@/components/last-updated";
 
 export const Route = createFileRoute("/_authed/clients/$id")({ component: ClientDetail });
@@ -336,12 +337,7 @@ function ClientDetail() {
       )}
       {tab === "Tax" && (
         <div className="space-y-3">
-          <TabSection label="tax obligation" onAdd={() => openAdd("tax")}><TaxList rows={related.tax} onDelete={async (taxId: string) => {
-            const { error } = await supabase.from("tax_returns").delete().eq("id", taxId);
-            if (error) { toast.error(error.message); return; }
-            toast.success("Tax obligation removed");
-            load();
-          }} empty="No tax returns" /></TabSection>
+          <TabSection label="tax obligation" onAdd={() => openAdd("tax")}><TaxObligations clientId={id} hideAdd reloadKey={related.tax} /></TabSection>
           {obligations.length > 0 && (
             <div className="space-y-2">
               {obligations.map(o => {
