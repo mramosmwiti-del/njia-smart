@@ -12,6 +12,8 @@ import { NotificationBell } from "./notification-bell";
 import { PageTransition } from "./page-transition";
 import { NAV_MODULE_BY_PATH } from "@/lib/permissions";
 import { useChatUnreadCount } from "@/hooks/use-chat-unread-count";
+import { useNotificationSound } from "@/hooks/use-notification-sound";
+import { SoundToggle } from "./sound-toggle";
 
 type NavLink = { to: string; label: string; icon: LucideIcon };
 type NavGroup = { label: string; icon: LucideIcon; children: NavLink[] };
@@ -67,6 +69,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [open, setOpen] = useState(false);
   const chatUnread = useChatUnreadCount();
+  useNotificationSound();
 
   // Only show a nav entry when the user actually has rights to that module —
   // no rights means no visibility, not just a blocked click-through. A group
@@ -208,6 +211,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {pathname.split("/").filter(Boolean)[0] || "Dashboard"}
           </h1>
           <div className="ml-auto flex items-center gap-2">
+            <SoundToggle />
             <NotificationBell />
           </div>
         </header>

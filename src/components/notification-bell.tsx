@@ -3,6 +3,7 @@ import { Bell, Check } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { formatDate } from "@/lib/format";
+import { useLiveRefresh } from "@/hooks/use-live-refresh";
 
 export function NotificationBell() {
   const { user } = useAuth();
@@ -22,14 +23,13 @@ export function NotificationBell() {
 
   useEffect(() => { load(); }, [user?.id]);
 
-  useEffect(() => {
-    if (!user) return;
-    const ch = supabase.channel("notif-"+user.id)
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${user.id}` },
-        () => load())
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
-  }, [user?.id]);
+  // Live: new reminders arrive instantly, and read/unread stays in sync
+  // across tabs and devices (INSERT + UPDATE + DELETE, own rows only).
+  useLiveRefresh(["notifications"], load, {
+    enabled: !!user,
+    filter: user ? `user_id=eq.${user.id}` : undefined,
+    debounceMs: 150,
+  });
 
   useEffect(() => {
     function onClick(e: MouseEvent) {
@@ -72,7 +72,7 @@ export function NotificationBell() {
           ) : items.map(n => (
             <div key={n.id} className={`p-3 border-b last:border-0 text-sm ${!n.read_at ? "bg-accent/5" : ""}`}>
               <div className="flex justify-between gap-2">
-                <div className="font-medium">{n.title}</div>
+                <div className={`font-medium ${n.type === "deadline_reminder" ? "text-destructive" : ""}`}>{n.title}</div>
                 {!n.read_at && <button onClick={()=>markOne(n.id)} title="Mark read"><Check className="h-3 w-3 text-muted-foreground hover:text-primary" /></button>}
               </div>
               {n.body && <div className="text-xs text-muted-foreground mt-0.5">{n.body}</div>}
