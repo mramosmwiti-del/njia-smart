@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useLiveRefresh } from "@/hooks/use-live-refresh";
 import { toast } from "sonner";
 import { AlertTriangle, Clock, UserX, LayoutGrid, Check, ChevronDown, ChevronUp } from "lucide-react";
 import { useAuth } from "@/lib/auth";
@@ -40,8 +41,8 @@ function TaxPage() {
   const [reportFilter, setReportFilter] = useState<"all" | "filed" | "not_filed">("all");
   const [expandedType, setExpandedType] = useState<string | null>(null);
 
-  async function load() {
-    setLoading(true);
+  async function load(silent = false) {
+    if (!silent) setLoading(true);
     const [p, r, c, o, s] = await Promise.all([
       supabase.from("tax_policies").select("*").order("sort_order"),
       supabase.from("tax_returns").select("id, client_id, return_type, status, due_date, assigned_to"),
@@ -57,6 +58,7 @@ function TaxPage() {
     setLoading(false);
   }
   useEffect(() => { load(); }, []);
+  useLiveRefresh(["tax_returns", "tax_return_assignees", "client_tax_obligations"], () => load(true));
 
   const activePolicies = useMemo(() => policies.filter(p => p.active), [policies]);
 

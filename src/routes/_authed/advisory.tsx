@@ -7,6 +7,7 @@ import { formatDate, formatDateTime, STATUS_COLORS, statusLabel } from "@/lib/fo
 import { ClientAssignments } from "@/components/client-assignments";
 import { ModuleTabBar, ClientsRollupTab, BillingTab, DocumentsTab, type ClientRollupRow } from "@/components/module-extra-tabs";
 import { useAuth } from "@/lib/auth";
+import { useLiveRefresh } from "@/hooks/use-live-refresh";
 
 export const Route = createFileRoute("/_authed/advisory")({
   head: () => ({
@@ -71,6 +72,7 @@ function AdvisoryPage() {
     setRows(p.data ?? []); setClients(c.data ?? []); setStaff(s.data ?? []);
   }
   useEffect(() => { load(); }, []);
+  useLiveRefresh(["advisory_projects", "advisory_milestones"], load);
 
   const staffName = (id?: string | null) => (id ? staff.find(s => s.id === id)?.full_name ?? "Unknown" : "—");
 

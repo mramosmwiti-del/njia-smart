@@ -6,6 +6,7 @@ import { Plus, X, Pencil, Trash2, MessageSquare, Send } from "lucide-react";
 import { formatDate, formatDateTime, daysUntil, STATUS_COLORS } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
 import { LastUpdated } from "@/components/last-updated";
+import { useLiveRefresh } from "@/hooks/use-live-refresh";
 
 export const Route = createFileRoute("/_authed/tasks")({ component: TasksPage });
 
@@ -37,6 +38,7 @@ function TasksPage() {
     setRows(tasksWithAssignee); setClients(c.data ?? []); setStaff(staffList);
   }
   useEffect(()=>{ load(); }, []);
+  useLiveRefresh(["tasks"], load);
 
   function openNew() { setForm(EMPTY); setOpen(true); }
   function openEdit(r: any) {

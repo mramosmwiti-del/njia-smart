@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Users, ClipboardCheck, Receipt, AlertTriangle, CheckCircle2, ListTodo, CalendarClock, UserCheck, Headset } from "lucide-react";
 import { formatDate, daysUntil } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
+import { useLiveRefresh } from "@/hooks/use-live-refresh";
 import {
   ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, Cell,
 } from "recharts";
@@ -102,8 +103,8 @@ function Dashboard() {
   const [myApprovals, setMyApprovals] = useState<any[]>([]);
   const [myLeave, setMyLeave] = useState<any[]>([]);
 
-  useEffect(() => {
-    (async () => {
+  const load = async () => {
+    {
       const [c, pendingTax, overdueTasks, completedTasks, staff, taxOpen, allTasks] = await Promise.all([
         supabase.from("clients").select("id", { count: "exact", head: true }),
         supabase.from("tax_returns").select("id", { count: "exact", head: true }).in("status", ["pending", "in_progress"]),
@@ -180,8 +181,10 @@ function Dashboard() {
           setMyApprovals(pend.data ?? []);
         }
       }
-    })();
-  }, [user?.id, isAdmin]);
+    }
+  };
+  useEffect(() => { load(); }, [user?.id, isAdmin]);
+  useLiveRefresh(["tasks", "tax_returns", "clients", "leave_requests"], load, { enabled: !!user });
 
   const summary = stats.overdue > 0
     ? `Heads up — ${stats.overdue} task${stats.overdue > 1 ? "s are" : " is"} overdue. ${stats.pending} tax return${stats.pending !== 1 ? "s" : ""} pending across ${stats.clients} client${stats.clients !== 1 ? "s" : ""}.`

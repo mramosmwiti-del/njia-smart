@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { ChevronLeft, ChevronRight, X, Trash2, Plus } from "lucide-react";
 import { useAuth } from "@/lib/auth";
+import { useLiveRefresh } from "@/hooks/use-live-refresh";
 
 export const Route = createFileRoute("/_authed/calendar")({ component: CalendarPage });
 
@@ -39,6 +40,7 @@ function CalendarPage() {
     setStaff(p.data ?? []);
   }
   useEffect(() => { load(); }, []);
+  useLiveRefresh(["calendar_events", "tax_returns"], load);
 
   const year = cursor.getFullYear();
   const month = cursor.getMonth();
