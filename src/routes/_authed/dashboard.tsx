@@ -61,7 +61,7 @@ function IctDeskCard() {
   const newest = open.slice(0, 5);
 
   return (
-    <div className={`bg-card border rounded-lg p-4 ${critical > 0 ? "border-destructive/60" : ""}`}>
+    <div className={`bg-card border rounded-lg p-4 card-hover animate-fade-in-up ${critical > 0 ? "border-destructive/60" : ""}`}>
       <div className="flex items-center justify-between mb-3">
         <h2 className="font-semibold inline-flex items-center gap-1.5"><Headset className="h-4 w-4" /> ICT Service Desk</h2>
         <Link to="/ict-service-desk" className="text-xs text-primary hover:underline">Open service desk →</Link>
