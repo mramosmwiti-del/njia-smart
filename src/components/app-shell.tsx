@@ -12,8 +12,6 @@ import { NotificationBell } from "./notification-bell";
 import { PageTransition } from "./page-transition";
 import { NAV_MODULE_BY_PATH } from "@/lib/permissions";
 import { useChatUnreadCount } from "@/hooks/use-chat-unread-count";
-import { useNotificationSound } from "@/hooks/use-notification-sound";
-import { SoundToggle } from "./sound-toggle";
 
 type NavLink = { to: string; label: string; icon: LucideIcon };
 type NavGroup = { label: string; icon: LucideIcon; children: NavLink[] };
@@ -69,7 +67,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [open, setOpen] = useState(false);
   const chatUnread = useChatUnreadCount();
-  useNotificationSound();
 
   // Only show a nav entry when the user actually has rights to that module —
   // no rights means no visibility, not just a blocked click-through. A group
@@ -119,10 +116,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     type="button"
                     onClick={() => setOpenGroups((s) => ({ ...s, [item.label]: !open_ }))}
                     aria-expanded={open_}
-                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors duration-150 ${
                       childActive && !open_
                         ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                        : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
+                        : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground hover:translate-x-0.5"
                     }`}
                   >
                     <Icon className="h-4 w-4" />
@@ -138,10 +135,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                             key={to}
                             to={to}
                             onClick={() => setOpen(false)}
-                            className={`flex items-center gap-2.5 px-3 py-1.5 rounded-md text-[13px] font-medium transition-colors ${
+                            className={`flex items-center gap-2.5 px-3 py-1.5 rounded-md text-[13px] font-medium transition-colors duration-150 ${
                               active
                                 ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                                : "text-sidebar-foreground/75 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
+                                : "text-sidebar-foreground/75 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground hover:translate-x-0.5"
                             }`}
                           >
                             <ChildIcon className="h-3.5 w-3.5" />
@@ -161,16 +158,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 key={to}
                 to={to}
                 onClick={() => setOpen(false)}
-                className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors duration-150 ${
                   active
                     ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
+                    : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground hover:translate-x-0.5"
                 }`}
               >
                 <Icon className="h-4 w-4" />
                 {label}
                 {to === "/chat" && chatUnread > 0 && (
-                  <span className="ml-auto h-2 w-2 rounded-full bg-accent shrink-0" />
+                  <span className="ml-auto h-2 w-2 rounded-full bg-accent shrink-0 animate-pulse" />
                 )}
               </Link>
             );
@@ -211,7 +208,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {pathname.split("/").filter(Boolean)[0] || "Dashboard"}
           </h1>
           <div className="ml-auto flex items-center gap-2">
-            <SoundToggle />
             <NotificationBell />
           </div>
         </header>
