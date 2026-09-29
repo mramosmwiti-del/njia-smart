@@ -15,8 +15,8 @@ export function PageTransition({ children }: { children: React.ReactNode }) {
 
   return (
     <div
-      className={`transition-all duration-300 ease-out ${
-        animating ? "opacity-0 mt-1" : "opacity-100 mt-0"
+      className={`transition-opacity duration-100 ease-out ${
+        animating ? "opacity-0" : "opacity-100"
       }`}
     >
       {children}
