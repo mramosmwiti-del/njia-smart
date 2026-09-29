@@ -62,7 +62,7 @@ type Asset = {
 
 function StatCard({ icon: Icon, label, value }: { icon: any; label: string; value: number }) {
   return (
-    <div className="bg-card rounded-lg border p-4 h-full">
+    <div className="bg-card rounded-lg border p-4 h-full card-hover animate-fade-in-up">
       <div className="flex items-center justify-between">
         <span className="text-xs text-muted-foreground font-medium uppercase tracking-wider">{label}</span>
         <Icon className="h-4 w-4 text-muted-foreground" />
@@ -237,7 +237,7 @@ function IctServiceDesk() {
         {canRaiseTicket && (
           <button
             onClick={() => setFormOpen(true)}
-            className="h-9 px-3 rounded-md bg-primary text-primary-foreground text-sm inline-flex items-center gap-2"
+            className="h-9 px-3 rounded-md bg-primary text-primary-foreground text-sm inline-flex items-center gap-2 transition-transform active:scale-95"
           >
             <Plus className="h-4 w-4" /> Raise a ticket
           </button>
@@ -326,7 +326,7 @@ function IctServiceDesk() {
             <span className="text-sm font-medium">IT Assets</span>
             <button
               onClick={openNewAsset}
-              className="h-8 px-3 rounded-md bg-primary text-primary-foreground text-xs inline-flex items-center gap-1.5"
+              className="h-8 px-3 rounded-md bg-primary text-primary-foreground text-xs inline-flex items-center gap-1.5 transition-transform active:scale-95"
             >
               <Plus className="h-3.5 w-3.5" /> Add asset
             </button>
@@ -376,8 +376,8 @@ function IctServiceDesk() {
       )}
 
       {formOpen && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setFormOpen(false)}>
-          <form onClick={(e) => e.stopPropagation()} onSubmit={submitTicket} className="bg-card w-full max-w-md rounded-lg p-6 space-y-3">
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 animate-fade-in" onClick={() => setFormOpen(false)}>
+          <form onClick={(e) => e.stopPropagation()} onSubmit={submitTicket} className="bg-card w-full max-w-md rounded-lg p-6 space-y-3 animate-scale-in">
             <div className="flex justify-between">
               <h2 className="text-lg font-semibold">Raise a ticket</h2>
               <button type="button" onClick={() => setFormOpen(false)}><X className="h-4 w-4" /></button>
@@ -415,7 +415,7 @@ function IctServiceDesk() {
                 {staff.map((s) => <option key={s.id} value={s.id}>{s.full_name ?? "Unnamed"}</option>)}
               </select>
             </div>
-            <button disabled={saving} className="w-full h-10 rounded-md bg-primary text-primary-foreground text-sm font-medium disabled:opacity-50">
+            <button disabled={saving} className="w-full h-10 rounded-md bg-primary text-primary-foreground text-sm font-medium disabled:opacity-50 transition-transform active:scale-[0.98]">
               {saving ? "Submitting…" : "Submit ticket"}
             </button>
           </form>
@@ -423,8 +423,8 @@ function IctServiceDesk() {
       )}
 
       {assetFormOpen && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setAssetFormOpen(false)}>
-          <form onClick={(e) => e.stopPropagation()} onSubmit={saveAsset} className="bg-card w-full max-w-md rounded-lg p-6 space-y-3">
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 animate-fade-in" onClick={() => setAssetFormOpen(false)}>
+          <form onClick={(e) => e.stopPropagation()} onSubmit={saveAsset} className="bg-card w-full max-w-md rounded-lg p-6 space-y-3 animate-scale-in">
             <div className="flex justify-between">
               <h2 className="text-lg font-semibold">{assetForm.id ? "Edit asset" : "Add asset"}</h2>
               <button type="button" onClick={() => setAssetFormOpen(false)}><X className="h-4 w-4" /></button>
@@ -473,7 +473,7 @@ function IctServiceDesk() {
                 {allStaff.map((s) => <option key={s.id} value={s.id}>{s.full_name ?? "Unnamed"}</option>)}
               </select>
             </div>
-            <button disabled={assetSaving} className="w-full h-10 rounded-md bg-primary text-primary-foreground text-sm font-medium disabled:opacity-50">
+            <button disabled={assetSaving} className="w-full h-10 rounded-md bg-primary text-primary-foreground text-sm font-medium disabled:opacity-50 transition-transform active:scale-[0.98]">
               {assetSaving ? "Saving…" : assetForm.id ? "Save changes" : "Add asset"}
             </button>
           </form>
