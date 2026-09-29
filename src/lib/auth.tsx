@@ -19,7 +19,7 @@ export type AppRole =
   | "marketing" | "tax_assistant" | "audit_assistant" | "internal_admin";
 
 interface AuthState {
-  user: User | admin;
+  user: User | null;
   session: Session | null;
   roles: AppRole[];
   loading: boolean;
@@ -48,7 +48,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
       setSession(s);
-      if (s?.user) setTimeout(() => loadRoles(s.user.id), 0);
+      if (s?.user) loadRoles(s.user.id);
       else setRoles([]);
     });
     supabase.auth.getSession().then(({ data }) => {
