@@ -45,6 +45,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [roles, setRoles] = useState<AppRole[]>([]);
   const [loading, setLoading] = useState(true);
+  // Which user's roles have finished loading. Until this matches the signed-in user, the app must
+  // keep showing "Loading…" instead of flashing "Pending role assignment".
+  const [rolesFor, setRolesFor] = useState<string | null>(null);
 
   useEffect(() => {
     // Offline: an expired token can't be refreshed, which would look like
@@ -54,7 +57,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const eff = s ?? (event === "INITIAL_SESSION" ? (readStoredSession() as Session | null) : null);
       setSession(eff);
       if (eff?.user) loadRoles(eff.user.id);
-      else setRoles([]);
+      else { setRoles([]); setRolesFor(null); }
     });
     supabase.auth.getSession().then(({ data }) => {
       const eff = data.session ?? (readStoredSession() as Session | null);
@@ -66,16 +69,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   async function loadRoles(uid: string) {
-    const { data } = await supabase.from("user_roles").select("role").eq("user_id", uid);
-    setRoles((data ?? []).map((r: any) => r.role));
+    try {
+      const { data } = await supabase.from("user_roles").select("role").eq("user_id", uid);
+      setRoles((data ?? []).map((r: any) => r.role));
+    } finally {
+      setRolesFor(uid);
+    }
   }
 
   const uid = session?.user?.id ?? null;
+  const rolesReady = !uid || rolesFor === uid;
   const value: AuthState = {
     user: session?.user ?? null,
     session,
     roles,
-    loading,
+    loading: loading || !rolesReady,
     isAdmin: roles.includes("director") || roles.includes("admin"),
     isLeaveApprover: _isLeaveApprover(roles),
     signOut: async () => { await supabase.auth.signOut(); await clearOfflineData(); },
