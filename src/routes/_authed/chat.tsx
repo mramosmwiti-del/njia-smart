@@ -288,7 +288,7 @@ function ChatPage() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-2rem)] -m-6 lg:-m-8">
+    <div className="flex h-[calc(100dvh-5.5rem)] md:h-[calc(100dvh-6.5rem)] -m-4 md:-m-6 overflow-hidden">
       {/* Sidebar */}
       <aside className="w-64 shrink-0 border-r bg-card flex flex-col">
         <div className="p-4 border-b flex items-center gap-2 font-semibold text-sm">
