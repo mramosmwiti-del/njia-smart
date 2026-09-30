@@ -101,7 +101,7 @@ function ClientsList() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-3 justify-between">
+      <div className="sticky top-14 z-10 bg-background pb-3 flex flex-wrap items-center gap-3 justify-between">
         <div>
           <h1 className="text-2xl font-bold">Clients</h1>
           <p className="text-sm text-muted-foreground">{rows.length} total</p>
