@@ -9,13 +9,13 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { NotificationBell } from "./notification-bell";
-import { ThemeToggle } from "./theme-toggle";
 import { PageTransition } from "./page-transition";
 import { NAV_MODULE_BY_PATH } from "@/lib/permissions";
 import { useChatUnreadCount } from "@/hooks/use-chat-unread-count";
 import { useNotificationSound } from "@/hooks/use-notification-sound";
 import { SoundToggle } from "./sound-toggle";
-import { CommandPalette } from "./command-palette";
+import { OfflineIndicator } from "./offline-indicator";
+import { pendingChangeCount } from "@/lib/offline";
 
 type NavLink = { to: string; label: string; icon: LucideIcon };
 type NavGroup = { label: string; icon: LucideIcon; children: NavLink[] };
@@ -185,6 +185,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
           <button
             onClick={async () => {
+              const n = await pendingChangeCount();
+              if (n > 0 && !window.confirm(`${n} change${n > 1 ? "s haven't" : " hasn't"} synced yet. Signing out now will discard ${n > 1 ? "them" : "it"}. Sign out anyway?`)) return;
               await signOut();
               router.navigate({ to: "/login", search: { next: undefined } });
             }}
@@ -213,13 +215,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {pathname.split("/").filter(Boolean)[0] || "Dashboard"}
           </h1>
           <div className="ml-auto flex items-center gap-2">
-            <CommandPalette pages={items.flatMap((i) => (isGroup(i) ? i.children : [i]))} />
+            <OfflineIndicator paths={items.flatMap((i) => (isGroup(i) ? i.children : [i]).map((l) => l.to))} />
             <SoundToggle />
-            <ThemeToggle />
             <NotificationBell />
           </div>
         </header>
-        <main className="flex-1 p-4 md:p-6 overflow-x-clip">
+        <main className="flex-1 p-4 md:p-6 overflow-x-hidden">
           <PageTransition>{children}</PageTransition>
         </main>
       </div>
