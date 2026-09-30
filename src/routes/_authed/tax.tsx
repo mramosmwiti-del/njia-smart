@@ -1,11 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useLiveRefresh } from "@/hooks/use-live-refresh";
 import { toast } from "sonner";
 import { AlertTriangle, Clock, UserX, LayoutGrid, Check, ChevronDown, ChevronUp } from "lucide-react";
 import { useAuth } from "@/lib/auth";
-import { daysUntil, periodsOverdue } from "@/lib/format";
+import { daysUntil, periodsOverdue, formatDate, formatDateTime } from "@/lib/format";
 
 export const Route = createFileRoute("/_authed/tax")({
   head: () => ({
@@ -24,8 +24,21 @@ function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
 
+/** PostgREST returns at most 1000 rows per request, so read a table page by page. */
+async function fetchAll(page: (from: number, to: number) => PromiseLike<{ data: any[] | null; error: any }>) {
+  const size = 1000;
+  const out: any[] = [];
+  for (let from = 0; ; from += size) {
+    const { data, error } = await page(from, from + size - 1);
+    if (error || !data) break;
+    out.push(...data);
+    if (data.length < size) break;
+  }
+  return out;
+}
+
 function TaxPage() {
-  const { isAdmin } = useAuth();
+  const { isAdmin, canCreate } = useAuth();
   const [tab, setTab] = useState<(typeof TABS)[number]>("Overview");
   const [policies, setPolicies] = useState<any[]>([]);
   const [returns, setReturns] = useState<any[]>([]);
@@ -40,27 +53,70 @@ function TaxPage() {
   const [reportType, setReportType] = useState<string>("");
   const [reportFilter, setReportFilter] = useState<"all" | "filed" | "not_filed">("all");
   const [expandedType, setExpandedType] = useState<string | null>(null);
+  const attemptedSchedule = useRef<Set<string>>(new Set());
+  const [scheduleFailed, setScheduleFailed] = useState<Set<string>>(new Set());
 
   async function load(silent = false) {
     if (!silent) setLoading(true);
     const [p, r, c, o, s] = await Promise.all([
       supabase.from("tax_policies").select("*").order("sort_order"),
-      supabase.from("tax_returns").select("id, client_id, return_type, status, due_date, assigned_to"),
+      fetchAll((a, b) => supabase.from("tax_returns")
+        .select("id, client_id, return_type, status, due_date, period_start, period_end, assigned_to, filed_at, filed_by")
+        .order("due_date").order("id").range(a, b)),
       supabase.from("clients").select("id, company_name").order("company_name"),
-      supabase.from("client_tax_obligations").select("*"),
+      fetchAll((a, b) => supabase.from("client_tax_obligations").select("*").order("id").range(a, b)),
       supabase.from("profiles").select("id, full_name"),
     ]);
     setPolicies((p.data as any[]) ?? []);
-    setReturns(r.data ?? []);
+    setReturns(r);
     setClients(c.data ?? []);
     setStaff(s.data ?? []);
-    setObligations((o.data as any[]) ?? []);
+    setObligations(o as any[]);
     setLoading(false);
   }
   useEffect(() => { load(); }, []);
   useLiveRefresh(["tax_returns", "tax_return_assignees", "client_tax_obligations"], () => load(true));
 
   const activePolicies = useMemo(() => policies.filter(p => p.active), [policies]);
+
+  // An active obligation with no filing period at all would sit on "Scheduling…" forever.
+  // Ask the database to create its first open period (it only does so when none exists).
+  useEffect(() => {
+    if (loading || !canCreate("tax")) return;
+    const activeTypes = new Set(activePolicies.map(p => p.tax_type));
+    const have = new Set(returns.map((r: any) => `${r.client_id}:${r.return_type}`));
+    const missing = obligations.filter(o => {
+      const k = `${o.client_id}:${o.tax_type}`;
+      return o.active && activeTypes.has(o.tax_type) && !have.has(k) && !attemptedSchedule.current.has(k);
+    });
+    if (missing.length === 0) return;
+    missing.forEach(o => attemptedSchedule.current.add(`${o.client_id}:${o.tax_type}`));
+    (async () => {
+      const failed: string[] = [];
+      for (let i = 0; i < missing.length; i += 10) {
+        await Promise.all(missing.slice(i, i + 10).map(async o => {
+          const { error } = await supabase.rpc("set_client_tax_obligation", { _client_id: o.client_id, _tax_type: o.tax_type, _active: true });
+          if (error) failed.push(`${o.client_id}:${o.tax_type}`);
+        }));
+      }
+      if (failed.length) setScheduleFailed(prev => new Set([...prev, ...failed]));
+      load(true);
+    })();
+  }, [loading, obligations, returns, activePolicies]);
+
+  async function scheduleNow(clientId: string, taxType: string) {
+    const { error } = await supabase.rpc("set_client_tax_obligation", { _client_id: clientId, _tax_type: taxType, _active: true });
+    if (error) { toast.error(error.message); return; }
+    setScheduleFailed(prev => { const n = new Set(prev); n.delete(`${clientId}:${taxType}`); return n; });
+    load(true);
+  }
+  function renderMissing(clientId: string, taxType: string) {
+    return scheduleFailed.has(`${clientId}:${taxType}`) ? (
+      <button type="button" onClick={() => scheduleNow(clientId, taxType)} className="text-xs text-primary hover:underline">Not scheduled — schedule now</button>
+    ) : (
+      <span className="text-xs text-muted-foreground">Scheduling…</span>
+    );
+  }
 
   // Reset back to "All types" if the remembered selection is no longer a
   // valid active policy (e.g. it was deactivated elsewhere).
@@ -152,13 +208,21 @@ function TaxPage() {
   // One row per obligated client x type — the same source data as the
   // checklist, just flattened into a filed / not-filed report.
   const reportRows = useMemo(() => {
-    const rows: { client: any; pol: any; cur: any; filed: boolean }[] = [];
+    const rows: { key: string; client: any; pol: any; cur: any; filed: boolean }[] = [];
     const scopedPolicies = reportType ? activePolicies.filter(p => p.tax_type === reportType) : activePolicies;
     filteredClients.forEach(c => {
       scopedPolicies.forEach(pol => {
         if (!obligationMap.get(`${c.id}:${pol.tax_type}`)) return;
-        const cur = currentReturn(c.id, pol.tax_type);
-        rows.push({ client: c, pol, cur, filed: cur?.status === "filed" });
+        const list = returnsByKey.get(`${c.id}:${pol.tax_type}`) ?? [];
+        // The period still to be filed (or nothing scheduled yet)...
+        if (list.length === 0 || list.some(r => r.status !== "filed")) {
+          const cur = currentReturn(c.id, pol.tax_type);
+          rows.push({ key: cur?.id ?? `${c.id}:${pol.tax_type}`, client: c, pol, cur, filed: false });
+        }
+        // ...and every period already filed stays on record with the date it was filed.
+        list.filter(r => r.status === "filed")
+          .sort((x, y) => (y.filed_at ?? y.due_date ?? "").localeCompare(x.filed_at ?? x.due_date ?? ""))
+          .forEach(r => rows.push({ key: r.id, client: c, pol, cur: r, filed: true }));
       });
     });
     return rows;
@@ -184,10 +248,11 @@ function TaxPage() {
   // without needing to drill into the per-type page first.
   async function markFiled(returnId: string, filed: boolean) {
     setBusyCell(returnId);
-    const { error } = await supabase.from("tax_returns").update({ status: filed ? "filed" : "pending" }).eq("id", returnId);
+    const { data, error } = await supabase.from("tax_returns").update({ status: filed ? "filed" : "pending" }).eq("id", returnId).select("id");
     setBusyCell(null);
     if (error) toast.error(error.message);
-    else { toast.success(filed ? "Marked filed" : "Reopened"); load(); }
+    else if (!data || data.length === 0) toast.error("You don't have permission to update this filing.");
+    else { toast.success(filed ? "Marked filed — next period scheduled" : "Reopened"); load(true); }
   }
 
   // The checklist only lists clients who are obligated for that tax type —
@@ -220,7 +285,7 @@ function TaxPage() {
                   <td className="py-1.5 px-3 font-medium">{c.company_name}</td>
                   <td className="py-1.5 px-3">
                     {!cur ? (
-                      <span className="text-xs text-muted-foreground">Scheduling…</span>
+                      renderMissing(c.id, pol.tax_type)
                     ) : (
                       <Link to="/tax/$type" params={{ type: pol.tax_type }} search={{ client: c.id }} className="inline-block hover:opacity-80">
                         <ChecklistCell row={cur} cadence={pol.cadence} assigneeName={cur.assigned_to ? staffMap.get(cur.assigned_to) : null} />
@@ -330,7 +395,7 @@ function TaxPage() {
                           <td className="py-1.5 px-3 font-medium">{c.company_name}</td>
                           <td className="py-1.5 px-3">
                             {!cur ? (
-                              <span className="text-xs text-muted-foreground">Scheduling…</span>
+                              renderMissing(c.id, pol.tax_type)
                             ) : (
                               <Link to="/tax/$type" params={{ type: pol.tax_type }} search={{ client: c.id }} className="inline-block hover:opacity-80">
                                 <ChecklistCell row={cur} cadence={pol.cadence} assigneeName={cur.assigned_to ? staffMap.get(cur.assigned_to) : null} />
@@ -414,12 +479,12 @@ function TaxPage() {
           <div className="bg-card border rounded-lg overflow-hidden">
             <table className="w-full text-sm">
               <thead className="bg-muted/40 text-left text-xs text-muted-foreground border-b">
-                <tr><th className="py-2 px-3">Client</th><th className="py-2 px-3">Tax type</th><th className="py-2 px-3">Status</th><th className="py-2 px-3">Due date</th><th className="py-2 px-3">Filed on</th></tr>
+                <tr><th className="py-2 px-3">Client</th><th className="py-2 px-3">Tax type</th><th className="py-2 px-3">Status</th><th className="py-2 px-3">Period ending</th><th className="py-2 px-3">Due date</th><th className="py-2 px-3">Filed on</th></tr>
               </thead>
               <tbody>
-                {filteredReportRows.length === 0 && <tr><td colSpan={5} className="py-8 text-center text-muted-foreground">No obligations match this view.</td></tr>}
+                {filteredReportRows.length === 0 && <tr><td colSpan={6} className="py-8 text-center text-muted-foreground">No obligations match this view.</td></tr>}
                 {filteredReportRows.map(row => (
-                  <tr key={`${row.client.id}:${row.pol.tax_type}`} className="border-b last:border-0 hover:bg-muted/20">
+                  <tr key={row.key} className="border-b last:border-0 hover:bg-muted/20">
                     <td className="py-1.5 px-3 font-medium">{row.client.company_name}</td>
                     <td className="py-1.5 px-3 text-xs text-muted-foreground">{row.pol.label}</td>
                     <td className="py-1.5 px-3">
@@ -429,14 +494,22 @@ function TaxPage() {
                         <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-100">Not filed</span>
                       )}
                     </td>
-                    <td className="py-1.5 px-3 text-xs">{row.cur?.due_date ?? "—"}</td>
-                    <td className="py-1.5 px-3 text-xs text-muted-foreground">{row.cur?.filed_at ? new Date(row.cur.filed_at).toLocaleDateString() : "—"}</td>
+                    <td className="py-1.5 px-3 text-xs">{row.cur?.period_end ? formatDate(row.cur.period_end) : "—"}</td>
+                    <td className="py-1.5 px-3 text-xs">{row.cur?.due_date ? formatDate(row.cur.due_date) : "—"}</td>
+                    <td className="py-1.5 px-3 text-xs text-muted-foreground">
+                      {row.filed && row.cur?.filed_at ? (
+                        <>
+                          <div>{formatDateTime(row.cur.filed_at)}</div>
+                          {row.cur.filed_by && staffMap.get(row.cur.filed_by) && <div className="text-[10px]">by {staffMap.get(row.cur.filed_by)}</div>}
+                        </>
+                      ) : "—"}
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          <p className="text-xs text-muted-foreground">Feeds straight from the checklist — every obligated client's current filing period, marked filed or not filed. Filter by type or search a client above.</p>
+          <p className="text-xs text-muted-foreground">Feeds straight from the checklist — each obligated client's open period, plus every period already filed with the date it was filed. Filter by type or search a client above.</p>
         </div>
       )}
     </div>
