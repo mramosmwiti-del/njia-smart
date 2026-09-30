@@ -4,10 +4,10 @@ import {
   LayoutDashboard, Users, ClipboardCheck, Receipt, Lightbulb,
   ListTodo, Megaphone, FolderOpen, CalendarDays, UserCog, Settings,
   LogOut, Menu, History, Wallet, Monitor, Landmark, Wallet2, Briefcase,
-  Contact, MessageSquare, Headset, Link2, Layers, ChevronDown,
+  Contact, MessageSquare, Headset, Link2, Layers, ChevronDown, Pin, PinOff,
   type LucideIcon,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NotificationBell } from "./notification-bell";
 import { CommandPalette } from "./command-palette";
 import { PageTransition } from "./page-transition";
@@ -71,9 +71,41 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, roles, canView, signOut } = useAuth();
   const router = useRouter();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(false);        // opened with the menu button (slides over the page)
+  const [hovered, setHovered] = useState(false);  // expanded by hovering the icon strip (desktop only)
+  const [pinned, setPinned] = useState(false);    // kept open on desktop and pushes the page over
+  const suppressHover = useRef(false);
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const expanded = pinned || open || hovered;
   const chatUnread = useChatUnreadCount();
   useNotificationSound();
+
+  useEffect(() => {
+    try { setPinned(localStorage.getItem("sidebar-pinned") === "1"); } catch { /* storage unavailable */ }
+  }, []);
+  const togglePin = () => setPinned((p) => {
+    const next = !p;
+    try { localStorage.setItem("sidebar-pinned", next ? "1" : "0"); } catch { /* storage unavailable */ }
+    return next;
+  });
+
+  const clearHoverTimer = () => { if (hoverTimer.current) { clearTimeout(hoverTimer.current); hoverTimer.current = null; } };
+  const canHover = () => typeof window !== "undefined" && window.matchMedia("(hover: hover) and (min-width: 1024px)").matches;
+  const onSidebarEnter = () => {
+    if (suppressHover.current || !canHover()) return;
+    clearHoverTimer();
+    hoverTimer.current = setTimeout(() => setHovered(true), 120);
+  };
+  const onSidebarLeave = () => { clearHoverTimer(); suppressHover.current = false; setHovered(false); };
+  // After choosing a page (or pressing Esc) collapse straight away, even though the mouse is still over the strip.
+  const collapse = () => { clearHoverTimer(); setOpen(false); setHovered(false); suppressHover.current = true; };
+
+  useEffect(() => {
+    if (!open && !hovered) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") collapse(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, hovered]);
 
   // Only show a nav entry when the user actually has rights to that module —
   // no rights means no visibility, not just a blocked click-through. A group
@@ -103,15 +135,31 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           along when the page scrolls. The main column below is simply
           offset by the sidebar's width via margin-left on desktop. */}
       <aside
-        className={`fixed inset-y-0 left-0 z-40 w-64 h-screen bg-sidebar text-sidebar-foreground flex flex-col transition-transform ${
+        onMouseEnter={onSidebarEnter}
+        onMouseLeave={onSidebarLeave}
+        className={`fixed inset-y-0 left-0 z-40 h-screen w-64 bg-sidebar text-sidebar-foreground flex flex-col overflow-hidden shadow-xl transition-[transform,width] duration-300 ease-in-out lg:translate-x-0 ${
           open ? "translate-x-0" : "-translate-x-full"
-        } lg:translate-x-0`}
+        } ${expanded ? "lg:w-64" : "lg:w-16"} ${expanded && !pinned ? "" : "lg:shadow-none"}`}
       >
-        <div className="px-5 py-5 border-b border-sidebar-border">
-          <div className="text-base font-bold tracking-tight leading-tight">G.K Nahashon</div>
-          <div className="text-xs text-sidebar-foreground/60">& Company</div>
+        <div className={`px-5 py-5 border-b border-sidebar-border whitespace-nowrap ${expanded ? "" : "lg:px-1"}`}>
+          <div className={`flex items-center justify-between gap-2 ${expanded ? "" : "lg:hidden"}`}>
+            <div>
+              <div className="text-base font-bold tracking-tight leading-tight">G.K Nahashon</div>
+              <div className="text-xs text-sidebar-foreground/60">& Company</div>
+            </div>
+            <button
+              type="button"
+              onClick={togglePin}
+              aria-pressed={pinned}
+              title={pinned ? "Unpin sidebar" : "Keep sidebar open"}
+              className="hidden lg:inline-flex p-1.5 rounded-md text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
+            >
+              {pinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
+            </button>
+          </div>
+          <div className={`hidden text-center text-base font-bold tracking-tight ${expanded ? "" : "lg:block"}`}>GK</div>
         </div>
-        <nav className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
+        <nav className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto overflow-x-hidden">
           {items.map((item) => {
             if (isGroup(item)) {
               const Icon = item.icon;
@@ -121,19 +169,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <div key={item.label}>
                   <button
                     type="button"
-                    onClick={() => setOpenGroups((s) => ({ ...s, [item.label]: !open_ }))}
-                    aria-expanded={open_}
-                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors duration-150 ${
-                      childActive && !open_
+                    title={!expanded ? item.label : undefined}
+                    onClick={() => {
+                      // In the icon rail, a group can't show its pages inline, so open the sidebar first.
+                      if (!expanded) { setOpen(true); setOpenGroups((s) => ({ ...s, [item.label]: true })); }
+                      else setOpenGroups((s) => ({ ...s, [item.label]: !open_ }));
+                    }}
+                    aria-expanded={expanded && open_}
+                    className={`relative w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium whitespace-nowrap transition-colors duration-150 ${expanded ? "" : "lg:justify-center lg:px-0"} ${
+                      childActive && (!open_ || !expanded)
                         ? "bg-sidebar-accent text-sidebar-accent-foreground"
                         : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground hover:translate-x-0.5"
                     }`}
                   >
-                    <Icon className="h-4 w-4" />
-                    {item.label}
-                    <ChevronDown className={`ml-auto h-4 w-4 transition-transform ${open_ ? "rotate-180" : ""}`} />
+                    {childActive && <span aria-hidden className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-accent" />}
+                    <Icon className="h-4 w-4 shrink-0" />
+                    <span className={expanded ? "" : "lg:hidden"}>{item.label}</span>
+                    <ChevronDown className={`ml-auto h-4 w-4 transition-transform ${open_ ? "rotate-180" : ""} ${expanded ? "" : "lg:hidden"}`} />
                   </button>
-                  {open_ && (
+                  {open_ && expanded && (
                     <div className="mt-0.5 ml-4 pl-3 border-l border-sidebar-border space-y-0.5">
                       {item.children.map(({ to, label, icon: ChildIcon }) => {
                         const active = isActivePath(pathname, to);
@@ -141,14 +195,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                           <Link
                             key={to}
                             to={to}
-                            onClick={() => setOpen(false)}
-                            className={`flex items-center gap-2.5 px-3 py-1.5 rounded-md text-[13px] font-medium transition-colors duration-150 ${
+                            onClick={collapse}
+                            className={`relative flex items-center gap-2.5 px-3 py-1.5 rounded-md text-[13px] font-medium whitespace-nowrap transition-colors duration-150 ${
                               active
                                 ? "bg-sidebar-accent text-sidebar-accent-foreground"
                                 : "text-sidebar-foreground/75 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground hover:translate-x-0.5"
                             }`}
                           >
-                            <ChildIcon className="h-3.5 w-3.5" />
+                            {active && <span aria-hidden className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-accent" />}
+                            <ChildIcon className="h-3.5 w-3.5 shrink-0" />
                             {label}
                           </Link>
                         );
@@ -164,51 +219,58 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <Link
                 key={to}
                 to={to}
-                onClick={() => setOpen(false)}
-                className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors duration-150 ${
+                title={!expanded ? label : undefined}
+                onClick={collapse}
+                className={`relative flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium whitespace-nowrap transition-colors duration-150 ${expanded ? "" : "lg:justify-center lg:px-0"} ${
                   active
                     ? "bg-sidebar-accent text-sidebar-accent-foreground"
                     : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground hover:translate-x-0.5"
                 }`}
               >
-                <Icon className="h-4 w-4" />
-                {label}
+                {active && <span aria-hidden className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-accent" />}
+                <Icon className="h-4 w-4 shrink-0" />
+                <span className={expanded ? "" : "lg:hidden"}>{label}</span>
                 {to === "/chat" && chatUnread > 0 && (
-                  <span className="ml-auto h-2 w-2 rounded-full bg-accent shrink-0 animate-pulse" />
+                  <span className={`h-2 w-2 rounded-full bg-accent shrink-0 animate-pulse ${expanded ? "ml-auto" : "ml-auto lg:absolute lg:top-1.5 lg:right-2 lg:ml-0"}`} />
                 )}
               </Link>
             );
           })}
         </nav>
-        <div className="border-t border-sidebar-border p-3">
-          <div className="text-xs text-sidebar-foreground/60 truncate">{user?.email}</div>
-          <div className="text-[10px] uppercase tracking-wider text-accent mt-1">
-            {roles[0]?.replace(/_/g, " ") || "Staff"}
+        <div className={`border-t border-sidebar-border p-3 ${expanded ? "" : "lg:px-2"}`}>
+          <div className={expanded ? "" : "lg:hidden"}>
+            <div className="text-xs text-sidebar-foreground/60 truncate">{user?.email}</div>
+            <div className="text-[10px] uppercase tracking-wider text-accent mt-1">
+              {roles[0]?.replace(/_/g, " ") || "Staff"}
+            </div>
           </div>
           <button
+            title={!expanded ? "Sign out" : undefined}
             onClick={async () => {
               const n = await pendingChangeCount();
               if (n > 0 && !window.confirm(`${n} change${n > 1 ? "s haven't" : " hasn't"} synced yet. Signing out now will discard ${n > 1 ? "them" : "it"}. Sign out anyway?`)) return;
               await signOut();
               router.navigate({ to: "/login", search: { next: undefined } });
             }}
-            className="mt-3 w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm bg-sidebar-accent/40 hover:bg-sidebar-accent text-sidebar-foreground"
+            className={`mt-3 w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm whitespace-nowrap bg-sidebar-accent/40 hover:bg-sidebar-accent text-sidebar-foreground ${expanded ? "" : "lg:mt-0 lg:justify-center lg:px-0"}`}
           >
-            <LogOut className="h-4 w-4" /> Sign out
+            <LogOut className="h-4 w-4 shrink-0" />
+            <span className={expanded ? "" : "lg:hidden"}>Sign out</span>
           </button>
         </div>
       </aside>
 
-      {open && (
-        <div className="fixed inset-0 bg-black/40 z-30 lg:hidden" onClick={() => setOpen(false)} />
-      )}
+      <div
+        className={`fixed inset-0 bg-black/40 z-30 transition-opacity duration-300 ${open ? (pinned ? "opacity-100 lg:opacity-0 lg:pointer-events-none" : "opacity-100") : "opacity-0 pointer-events-none"}`}
+        onClick={() => setOpen(false)}
+      />
 
       {/* Main — offset by the sidebar's width on desktop; the sidebar is
           fixed, not a flex sibling, so nothing here can pull it along. */}
-      <div className="flex flex-col min-h-screen lg:ml-64">
+      <div className={`flex flex-col min-h-screen transition-[margin-left] duration-300 ease-in-out ${pinned ? "lg:ml-64" : "lg:ml-16"}`}>
         <header className="h-14 border-b bg-card flex items-center px-4 gap-3 sticky top-0 z-20">
           <button
-            className="lg:hidden p-2 -ml-2 rounded-md hover:bg-muted"
+            className={`p-2 -ml-2 rounded-md hover:bg-muted ${pinned ? "lg:hidden" : ""}`}
             onClick={() => setOpen(true)}
           >
             <Menu className="h-5 w-5" />
