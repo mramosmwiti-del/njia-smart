@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { NotificationBell } from "./notification-bell";
+import { ThemeToggle } from "./theme-toggle";
 import { PageTransition } from "./page-transition";
 import { NAV_MODULE_BY_PATH } from "@/lib/permissions";
 import { useChatUnreadCount } from "@/hooks/use-chat-unread-count";
@@ -214,6 +215,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="ml-auto flex items-center gap-2">
             <CommandPalette pages={items.flatMap((i) => (isGroup(i) ? i.children : [i]))} />
             <SoundToggle />
+            <ThemeToggle />
             <NotificationBell />
           </div>
         </header>
