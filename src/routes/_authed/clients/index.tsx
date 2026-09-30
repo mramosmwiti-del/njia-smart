@@ -5,6 +5,8 @@ import { toast } from "sonner";
 import { Plus, Search, X, Pause, Play, Trash2 } from "lucide-react";
 import { STATUS_COLORS, statusLabel, formatDate } from "@/lib/format";
 import { CsvImport } from "@/components/csv-import";
+import { ClientTypeBadge } from "@/components/client-type-badge";
+import { clientType, clientDisplayName, clientMatches } from "@/lib/client-search";
 import { useAuth } from "@/lib/auth";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 
@@ -60,11 +62,19 @@ function ClientsList() {
   }
 
   const filtered = useMemo(() => rows.filter(r =>
-    (typeFilter === "all" || (r.client_type ?? "company") === typeFilter) &&
+    (typeFilter === "all" || clientType(r) === typeFilter) &&
     (stateFilter === "all" || (stateFilter === "paused" ? r.is_paused : !r.is_paused)) &&
-    (!q || r.company_name?.toLowerCase().includes(q.toLowerCase()) ||
-    r.kra_pin?.toLowerCase().includes(q.toLowerCase()))
+    clientMatches(r, q.trim())
   ), [rows, typeFilter, stateFilter, q]);
+
+  const typeCounts = useMemo(() => {
+    const inState = rows.filter(r => stateFilter === "all" || (stateFilter === "paused" ? r.is_paused : !r.is_paused));
+    return {
+      all: inState.length,
+      company: inState.filter(r => clientType(r) === "company").length,
+      individual: inState.filter(r => clientType(r) === "individual").length,
+    };
+  }, [rows, stateFilter]);
 
   const pausedCount = rows.filter(r => r.is_paused).length;
 
@@ -135,11 +145,11 @@ function ClientsList() {
       <div className="flex flex-wrap gap-2 items-center">
         <div className="relative max-w-sm flex-1 min-w-[200px]">
           <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search company or KRA PIN…" className="w-full h-9 pl-9 pr-3 rounded-md border bg-background text-sm" />
+          <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search clients — company or individual (name, KRA PIN, ID, email)…" className="w-full h-9 pl-9 pr-3 rounded-md border bg-background text-sm" />
         </div>
         <div className="inline-flex rounded-md border bg-background overflow-hidden text-sm">
           {([["all","All Clients"],["company","Companies"],["individual","Individuals"]] as const).map(([v,l]) => (
-            <button key={v} onClick={()=>setTypeFilter(v)} className={`h-9 px-3 ${typeFilter===v ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>{l}</button>
+            <button key={v} onClick={()=>setTypeFilter(v)} className={`h-9 px-3 ${typeFilter===v ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>{l} <span className="opacity-70">({typeCounts[v]})</span></button>
           ))}
         </div>
         <div className="inline-flex rounded-md border bg-background overflow-hidden text-sm">
@@ -181,26 +191,21 @@ function ClientsList() {
             <thead className="text-left text-xs text-muted-foreground border-b bg-muted/40">
               <tr>
                 <th className="py-2 px-3 w-8"><input type="checkbox" checked={filtered.length > 0 && selected.size === filtered.length} onChange={toggleSelectAll} /></th>
-                <th className="py-2 px-3">Client</th><th>Type</th><th>KRA PIN</th><th>Industry</th><th>Engagement</th><th>Assigned</th><th>Status</th><th>Added</th><th></th>
+                <th className="py-2 px-3">Client</th><th className="py-2 px-3">Type</th><th>KRA PIN</th><th>Industry</th><th>Engagement</th><th>Assigned</th><th>Status</th><th>Added</th><th></th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 && <tr><td colSpan={10} className="py-10 text-center text-muted-foreground">No clients{q ? " match your search" : " yet — add the first one"}.</td></tr>}
               {filtered.map(r => {
                 const names = assignByClient[r.id] ?? [];
-                const ctype = (r.client_type ?? "company") as "company"|"individual";
                 return (
                   <tr key={r.id} className={`border-b last:border-0 hover:bg-muted/30 ${r.is_paused ? "opacity-60" : ""}`}>
                     <td className="py-2 px-3"><input type="checkbox" checked={selected.has(r.id)} onChange={()=>toggleSelected(r.id)} /></td>
                     <td className="py-2 px-3 font-medium">
-                      <Link to="/clients/$id" params={{ id: r.id }} className="hover:text-primary">{r.company_name}</Link>
+                      <Link to="/clients/$id" params={{ id: r.id }} className="hover:text-primary">{clientDisplayName(r)}</Link>
                       {r.is_paused && <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground align-middle">Paused</span>}
                     </td>
-                    <td>
-                      <span className={`text-xs px-2 py-0.5 rounded-md border ${ctype === "individual" ? "border-blue-200 text-blue-700 dark:border-blue-900 dark:text-blue-300" : "border-emerald-200 text-emerald-700 dark:border-emerald-900 dark:text-emerald-300"}`}>
-                        {ctype === "individual" ? "Individual" : "Company"}
-                      </span>
-                    </td>
+                    <td className="py-2 px-3"><ClientTypeBadge client={r} /></td>
                     <td className="font-mono text-xs">{r.kra_pin || "—"}</td>
                     <td>{r.industry || "—"}</td>
                     <td>{r.engagement_type || "—"}</td>
