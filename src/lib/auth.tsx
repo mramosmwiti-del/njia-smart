@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
+import { clearOfflineData, readStoredSession } from "@/lib/offline";
 import {
   canCreate as _canCreate,
   canDelete as _canDelete,
@@ -46,14 +47,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
-      setSession(s);
-      if (s?.user) loadRoles(s.user.id);
+    // Offline: an expired token can't be refreshed, which would look like
+    // "signed out". If a saved session still exists locally, keep using it;
+    // it refreshes by itself as soon as the connection is back.
+    const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
+      const eff = s ?? (event === "INITIAL_SESSION" ? (readStoredSession() as Session | null) : null);
+      setSession(eff);
+      if (eff?.user) loadRoles(eff.user.id);
       else setRoles([]);
     });
     supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      if (data.session?.user) loadRoles(data.session.user.id);
+      const eff = data.session ?? (readStoredSession() as Session | null);
+      setSession(eff);
+      if (eff?.user) loadRoles(eff.user.id);
       setLoading(false);
     });
     return () => sub.subscription.unsubscribe();
@@ -72,7 +78,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loading,
     isAdmin: roles.includes("director") || roles.includes("admin"),
     isLeaveApprover: _isLeaveApprover(roles),
-    signOut: async () => { await supabase.auth.signOut(); },
+    signOut: async () => { await supabase.auth.signOut(); await clearOfflineData(); },
     access: (moduleKey) => _getModuleAccess(roles, moduleKey),
     canView: (moduleKey) => _canView(roles, moduleKey),
     isAssignedOnly: (moduleKey) => _isAssignedOnly(roles, moduleKey),
