@@ -18,13 +18,15 @@ function TasksPage() {
   const [clients, setClients] = useState<any[]>([]);
   const [staff, setStaff] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
-  const [tab, setTab] = useState<"mine"|"all">("all");
   const [form, setForm] = useState<any>(EMPTY);
   const [detailId, setDetailId] = useState<string|null>(null);
 
   async function load() {
+    // Tasks are private: everyone (admins included) sees only tasks assigned to them or created by them.
+    let taskQuery = supabase.from("tasks").select("*, clients(company_name)").order("due_date", { ascending: true, nullsFirst: false });
+    if (user?.id) taskQuery = taskQuery.or(`assigned_to.eq.${user.id},created_by.eq.${user.id}`);
     const [t, c, s] = await Promise.all([
-      supabase.from("tasks").select("*, clients(company_name)").order("due_date", { ascending: true, nullsFirst: false }),
+      taskQuery,
       supabase.from("clients").select("id, company_name").order("company_name"),
       supabase.from("profiles").select("id, full_name").order("full_name"),
     ]);
@@ -37,7 +39,7 @@ function TasksPage() {
     }));
     setRows(tasksWithAssignee); setClients(c.data ?? []); setStaff(staffList);
   }
-  useEffect(()=>{ load(); }, []);
+  useEffect(()=>{ load(); }, [user?.id]);
   useLiveRefresh(["tasks"], load);
 
   function openNew() { setForm(EMPTY); setOpen(true); }
@@ -80,7 +82,7 @@ function TasksPage() {
     if (error) toast.error(error.message); else load();
   }
 
-  const visible = tab === "mine" ? rows.filter(r => r.assigned_to === user?.id) : rows;
+  const visible = rows.filter(r => r.assigned_to === user?.id || r.created_by === user?.id);
 
   return (
     <div className="space-y-4">
@@ -89,11 +91,6 @@ function TasksPage() {
         {canCreate("tasks") && (
           <button onClick={openNew} className="h-9 px-3 rounded-md bg-primary text-primary-foreground text-sm inline-flex items-center gap-2"><Plus className="h-4 w-4" /> New task</button>
         )}
-      </div>
-      <div className="inline-flex border rounded-md p-0.5 bg-muted">
-        {(["all","mine"] as const).map(t => (
-          <button key={t} onClick={()=>setTab(t)} className={`px-3 py-1 text-xs rounded ${tab===t ? "bg-card shadow font-medium" : "text-muted-foreground"}`}>{t === "mine" ? "My tasks" : "All tasks"}</button>
-        ))}
       </div>
       <div className="bg-card border rounded-lg overflow-hidden">
         <div className="overflow-x-auto">
