@@ -40,6 +40,9 @@ function AuditPage() {
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
+    // See clients/index.tsx for why: waits out any pending token refresh so
+    // this insert doesn't race an expired session and fail with a 401.
+    await supabase.auth.getSession();
     let clientId = form.client_id;
     if (clientId === "__new__") {
       if (!newClientName.trim()) { toast.error("Enter the new client name"); return; }
