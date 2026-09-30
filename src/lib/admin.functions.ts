@@ -56,6 +56,7 @@ export const getStaffMember = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) => z.object({ user_id: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }) => {
+    await assertAdmin(context);
     const { data: profile } = await context.supabase
       .from("profiles").select("*").eq("id", data.user_id).maybeSingle();
     const { data: roles } = await context.supabase
