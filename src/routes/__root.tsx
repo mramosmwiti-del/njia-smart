@@ -4,6 +4,7 @@ import {
 } from "@tanstack/react-router";
 import { Toaster } from "sonner";
 import { AuthProvider } from "@/lib/auth";
+import { ThemeProvider } from "@/lib/theme";
 import { PageTransition } from "@/components/page-transition";
 import appCss from "../styles.css?url";
 
@@ -76,7 +77,18 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 function RootShell({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <head><HeadContent /></head>
+      <head>
+        {/* Applies the saved theme before first paint so there's no flash of
+            the wrong theme. Kept intentionally tiny and inline — this can't
+            wait for the app bundle to load. Mirrors the logic in
+            src/lib/theme.tsx; keep the two in sync if either changes. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=localStorage.getItem("njia-theme");if(t==="dark"||(!t&&window.matchMedia("(prefers-color-scheme: dark)").matches)){document.documentElement.classList.add("dark");}}catch(e){}})();`,
+          }}
+        />
+        <HeadContent />
+      </head>
       <body>{children}<Scripts /></body>
     </html>
   );
@@ -86,11 +98,13 @@ function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const isAuthed = useRouterState({ select: (s) => s.matches.some((m) => m.routeId.startsWith("/_authed")) });
   return (
-    <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        {isAuthed ? <Outlet /> : <PageTransition><Outlet /></PageTransition>}
-        <Toaster position="top-right" richColors />
-      </AuthProvider>
-    </QueryClientProvider>
+    <ThemeProvider>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          {isAuthed ? <Outlet /> : <PageTransition><Outlet /></PageTransition>}
+          <Toaster position="top-right" richColors />
+        </AuthProvider>
+      </QueryClientProvider>
+    </ThemeProvider>
   );
 }
