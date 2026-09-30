@@ -37,7 +37,9 @@ function money(n: number, currency = "KES") {
 function HrPage() {
   const { user, isAdmin, roles: myRoles } = useAuth();
   const isHrMgr = isHrManager(myRoles);
-  const [tab, setTab] = useState<(typeof TABS)[number]>("Directory");
+  // Directory (the full staff/employee list) is restricted to Admin,
+  // Accountant and Director — everyone else lands on their own leave tab.
+  const [tab, setTab] = useState<(typeof TABS)[number]>(isHrMgr ? "Directory" : "My Leave");
   const [genderFilter, setGenderFilter] = useState<GenderFilter>("all");
 
   const [profiles, setProfiles] = useState<any[]>([]);
@@ -159,7 +161,7 @@ function HrPage() {
       </div>
 
       <div className="flex flex-wrap gap-1 border-b">
-        {TABS.filter(t => t !== "Approvals" || canApproveAny).map(t => (
+        {TABS.filter(t => (t !== "Approvals" || canApproveAny) && (t !== "Directory" || isHrMgr)).map(t => (
           <button key={t} onClick={() => setTab(t)} className={`px-3 py-2 text-sm border-b-2 transition-colors ${tab === t ? "border-primary text-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
             {t}{t === "Approvals" && pendingApprovals.length > 0 ? ` (${pendingApprovals.length})` : ""}
           </button>
@@ -168,7 +170,7 @@ function HrPage() {
 
       {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
 
-      {!loading && tab === "Directory" && (
+      {!loading && tab === "Directory" && isHrMgr && (
         <div className="grid gap-3">
           {isHrMgr && (
             <div className="flex flex-wrap items-center gap-2 text-xs">
