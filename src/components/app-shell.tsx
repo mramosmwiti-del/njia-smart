@@ -15,6 +15,7 @@ import { useChatUnreadCount } from "@/hooks/use-chat-unread-count";
 import { useNotificationSound } from "@/hooks/use-notification-sound";
 import { SoundToggle } from "./sound-toggle";
 import { OfflineIndicator } from "./offline-indicator";
+import { ThemeToggle } from "./theme-toggle";
 import { pendingChangeCount } from "@/lib/offline";
 
 type NavLink = { to: string; label: string; icon: LucideIcon };
@@ -215,6 +216,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {pathname.split("/").filter(Boolean)[0] || "Dashboard"}
           </h1>
           <div className="ml-auto flex items-center gap-2">
+            <ThemeToggle />
             <OfflineIndicator paths={items.flatMap((i) => (isGroup(i) ? i.children : [i]).map((l) => l.to))} />
             <SoundToggle />
             <NotificationBell />
