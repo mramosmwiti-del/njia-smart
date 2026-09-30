@@ -100,8 +100,8 @@ function ClientsList() {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-3 justify-between">
+    <div className="flex flex-col gap-4 h-[calc(100vh-6.5rem)]">
+      <div className="shrink-0 flex flex-wrap items-center gap-3 justify-between">
         <div>
           <h1 className="text-2xl font-bold">Clients</h1>
           <p className="text-sm text-muted-foreground">{rows.length} total</p>
@@ -132,7 +132,7 @@ function ClientsList() {
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2 items-center">
+      <div className="shrink-0 flex flex-wrap gap-2 items-center">
         <div className="relative max-w-sm flex-1 min-w-[200px]">
           <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search company, individual or KRA PIN…" className="w-full h-9 pl-9 pr-3 rounded-md border bg-background text-sm" />
@@ -150,7 +150,7 @@ function ClientsList() {
       </div>
 
       {selected.size > 0 && (
-        <div className="bg-card border rounded-lg p-3 flex flex-wrap items-center gap-3">
+        <div className="shrink-0 bg-card border rounded-lg p-3 flex flex-wrap items-center gap-3">
           <span className="text-sm font-medium">{selected.size} selected</span>
           <button disabled={bulkBusy} onClick={()=>bulkPause(true)} className="h-8 px-3 rounded-md border text-xs inline-flex items-center gap-1.5 hover:bg-muted disabled:opacity-50"><Pause className="h-3.5 w-3.5" />Pause</button>
           <button disabled={bulkBusy} onClick={()=>bulkPause(false)} className="h-8 px-3 rounded-md border text-xs inline-flex items-center gap-1.5 hover:bg-muted disabled:opacity-50"><Play className="h-3.5 w-3.5" />Resume</button>
@@ -175,10 +175,10 @@ function ClientsList() {
         </div>
       )}
 
-      <div className="bg-card border rounded-lg overflow-hidden">
-        <div className="overflow-x-auto">
+      <div className="bg-card border rounded-lg overflow-hidden flex-1 min-h-0 flex flex-col">
+        <div className="overflow-auto flex-1 min-h-0">
           <table className="w-full text-sm">
-            <thead className="text-left text-xs text-muted-foreground border-b bg-muted/40">
+            <thead className="text-left text-xs text-muted-foreground border-b bg-muted sticky top-0 z-10">
               <tr>
                 <th className="py-2 px-3 w-8"><input type="checkbox" checked={filtered.length > 0 && selected.size === filtered.length} onChange={toggleSelectAll} /></th>
                 <th className="py-2 px-3">Client</th><th>Type</th><th>KRA PIN</th><th>Industry</th><th>Engagement</th><th>Assigned</th><th>Status</th><th>Added</th><th></th>
