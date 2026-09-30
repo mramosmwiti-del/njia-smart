@@ -4,12 +4,14 @@ import { Search, Users, Receipt, ClipboardCheck, UserCog, Link2, type LucideIcon
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { ClientTypeBadge } from "@/components/client-type-badge";
+import { clientDisplayName, clientSearchFilter } from "@/lib/client-search";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 
 export type PaletteLink = { to: string; label: string; icon: LucideIcon };
 
 type Records = {
-  clients: { id: string; company_name: string | null; kra_pin: string | null; email: string | null }[];
+  clients: { id: string; client_type: string | null; company_name: string | null; first_name: string | null; last_name: string | null; kra_pin: string | null; id_number: string | null; email: string | null }[];
   invoices: { id: string; invoice_number: string; status: string | null; total: number | null; currency: string | null }[];
   audits: { id: string; title: string; status: string | null }[];
   team: { id: string; full_name: string | null; job_title: string | null; department: string | null }[];
@@ -76,9 +78,9 @@ export function CommandPalette({ pages }: { pages: PaletteLink[] }) {
         try { const { data, error } = await fn(); return error ? [] : (data ?? []); } catch { return []; }
       };
       const [clients, invoices, audits, team, links] = await Promise.all([
-        run(seeClients, () => db.from("clients").select("id, company_name, kra_pin, email")
-          .or(`company_name.ilike.${like},first_name.ilike.${like},last_name.ilike.${like},kra_pin.ilike.${like},email.ilike.${like}`)
-          .order("company_name").limit(LIMIT)),
+        run(seeClients, () => db.from("clients").select("id, client_type, company_name, first_name, last_name, kra_pin, id_number, email")
+          .or(clientSearchFilter(q))
+          .order("company_name").limit(8)),
         run(seeInvoices, () => db.from("invoices").select("id, invoice_number, status, total, currency")
           .ilike("invoice_number", like).order("created_at", { ascending: false }).limit(LIMIT)),
         run(seeAudits, () => db.from("engagements").select("id, title, status")
@@ -127,7 +129,7 @@ export function CommandPalette({ pages }: { pages: PaletteLink[] }) {
         <DialogContent className="overflow-hidden p-0 max-w-xl top-[20%] translate-y-0">
           <DialogTitle className="sr-only">Search</DialogTitle>
           <Command shouldFilter={false} className="[&_[cmdk-input]]:h-12 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-2.5 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group]]:px-2">
-            <CommandInput value={query} onValueChange={setQuery} placeholder="Search pages, clients, invoices, audits, team…" />
+            <CommandInput value={query} onValueChange={setQuery} placeholder="Search pages, clients (company or individual), invoices, audits, team…" />
             <CommandList className="max-h-[360px]">
               {loading && <div className="py-6 text-center text-sm text-muted-foreground">Searching…</div>}
               {!loading && nothing && q.length >= MIN_CHARS && <CommandEmpty>No results for “{q}”.</CommandEmpty>}
@@ -148,8 +150,9 @@ export function CommandPalette({ pages }: { pages: PaletteLink[] }) {
                   {records.clients.map((c) => (
                     <CommandItem key={c.id} value={`client-${c.id}`} onSelect={() => go(`/clients/${c.id}`)}>
                       <Users className="mr-2 h-4 w-4 text-muted-foreground" />
-                      <span>{c.company_name || "Unnamed client"}</span>
-                      {(c.kra_pin || c.email) && <span className="ml-2 text-xs text-muted-foreground truncate">{c.kra_pin || c.email}</span>}
+                      <span className="truncate">{clientDisplayName(c)}</span>
+                      <span className="ml-2"><ClientTypeBadge type={c.client_type} /></span>
+                      {(c.kra_pin || c.id_number || c.email) && <span className="ml-2 text-xs text-muted-foreground truncate">{c.kra_pin || c.id_number || c.email}</span>}
                     </CommandItem>
                   ))}
                 </CommandGroup>
