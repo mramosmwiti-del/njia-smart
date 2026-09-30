@@ -64,11 +64,13 @@ export function useLiveRefresh(
     const onVisible = () => { if (document.visibilityState === "visible") fire(); };
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("online", fire);
+    window.addEventListener("naha:refresh", fire); // offline changes just synced
 
     return () => {
       clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("online", fire);
+      window.removeEventListener("naha:refresh", fire);
       supabase.removeChannel(ch);
     };
   }, [tableKey, filter, enabled, debounceMs]);
