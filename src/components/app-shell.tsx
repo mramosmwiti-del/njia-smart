@@ -219,7 +219,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <NotificationBell />
           </div>
         </header>
-        <main className="flex-1 p-4 md:p-6 overflow-x-hidden">
+        <main className="flex-1 p-4 md:p-6 overflow-x-clip">
           <PageTransition>{children}</PageTransition>
         </main>
       </div>
