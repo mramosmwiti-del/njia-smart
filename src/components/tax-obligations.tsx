@@ -26,6 +26,7 @@ export function TaxObligations({ clientId, hideAdd = false, reloadKey }: { clien
   const [staff, setStaff] = useState<any[]>([]);
   const [docs, setDocs] = useState<Record<string, any[]>>({});
   const [invoices, setInvoices] = useState<Record<string, any>>({});
+  const [collabs, setCollabs] = useState<Record<string, string[]>>({});
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [addOpen, setAddOpen] = useState(false);
   const [addForm, setAddForm] = useState<any>({ return_types: ["vat"], period_start: "", period_end: "", due_date: new Date().toISOString().slice(0,10), notes: "" });
@@ -59,6 +60,12 @@ export function TaxObligations({ clientId, hideAdd = false, reloadKey }: { clien
       (byReturn[doc.tax_return_id] ??= []).push(doc);
     });
     setDocs(byReturn);
+    if (ids.length) {
+      const { data: ca } = await supabase.from("tax_return_assignees" as any).select("tax_return_id, user_id").in("tax_return_id", ids);
+      const m: Record<string, string[]> = {};
+      ((ca as any[]) ?? []).forEach((c) => { (m[c.tax_return_id] ??= []).push(c.user_id); });
+      setCollabs(m);
+    } else setCollabs({});
     setInvoices(Object.fromEntries((inv.data ?? []).map((i: any) => [i.id, i])));
   }
   useEffect(() => { load(); }, [clientId, reloadKey]);
@@ -256,6 +263,7 @@ export function TaxObligations({ clientId, hideAdd = false, reloadKey }: { clien
                           {r.period_end ? `Period ending ${formatDate(r.period_end)}` : `Due ${formatDate(r.due_date)}`}
                           <span className="text-muted-foreground"> · filed {formatDateTime(r.filed_at)}{r.filed_by && staff.find(s => s.id === r.filed_by) ? ` by ${staff.find(s => s.id === r.filed_by)?.full_name}` : ""}</span>
                           <span className="text-muted-foreground text-xs"> · due {formatDate(r.due_date)}</span>
+                          <span className="text-muted-foreground text-xs"> · assigned to {[r.assigned_to, ...(collabs[r.id] ?? [])].filter(Boolean).map((id: string) => staff.find(s => s.id === id)?.full_name ?? "Unknown").join(", ") || "no one"}</span>
                         </div>
                         <div className="flex items-center gap-2">
                           {inv ? (
