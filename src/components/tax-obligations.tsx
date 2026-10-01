@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Plus, Trash2, Upload, Download, Receipt, ChevronDown, ChevronRight, FileText } from "lucide-react";
 import { formatDate, formatDateTime, daysUntil, STATUS_COLORS, statusLabel } from "@/lib/format";
 import { TaxAssigneeSelect } from "@/components/tax-assignee-select";
+import { CompletionInvoiceDialog } from "@/components/completion-invoice-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -37,6 +38,7 @@ export function TaxObligations({ clientId, hideAdd = false, reloadKey }: { clien
   const [billFor, setBillFor] = useState<any>(null);
   const [billForm, setBillForm] = useState<any>({ amount: 0, description: "" });
   const [billBusy, setBillBusy] = useState(false);
+  const [invoiceFor, setInvoiceFor] = useState<any>(null);
 
   async function load() {
     const [{ data: tax }, { data: pol }, { data: prof }] = await Promise.all([
@@ -90,7 +92,10 @@ export function TaxObligations({ clientId, hideAdd = false, reloadKey }: { clien
     return policies.find(p => p.tax_type === t)?.label ?? t;
   }
 
-  async function setStatus(id: string, status: string) {
+  async function setStatus(id: string, status: string, skipInvoice = false) {
+    // A filing can't be marked filed until an invoice exists for it.
+    const row = rows.find(r => r.id === id);
+    if (!skipInvoice && status === "filed" && row?.status !== "filed" && !row?.invoice_id) { setInvoiceFor(row); return; }
     const { data, error } = await supabase.from("tax_returns").update({ status }).eq("id", id).select("id");
     if (error) toast.error(error.message);
     else if (!data || data.length === 0) toast.error("You don't have permission to update this filing.");
@@ -293,6 +298,17 @@ export function TaxObligations({ clientId, hideAdd = false, reloadKey }: { clien
           </div>
         );
       })}
+
+      {invoiceFor && (
+        <CompletionInvoiceDialog
+          open
+          onOpenChange={o => { if (!o) setInvoiceFor(null); }}
+          source="tax_returns"
+          sourceId={invoiceFor.id}
+          defaultDescription={`${typeLabel(invoiceFor.return_type)} filing — period ending ${formatDate(invoiceFor.period_end)}`}
+          onInvoiced={async () => { await setStatus(invoiceFor.id, "filed", true); setInvoiceFor(null); }}
+        />
+      )}
 
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent className="max-w-lg">
