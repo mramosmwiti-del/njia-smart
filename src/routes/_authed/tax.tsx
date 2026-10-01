@@ -5,6 +5,7 @@ import { useLiveRefresh } from "@/hooks/use-live-refresh";
 import { toast } from "sonner";
 import { AlertTriangle, Clock, UserX, LayoutGrid, Check, ChevronDown, ChevronUp } from "lucide-react";
 import { useAuth } from "@/lib/auth";
+import { CompletionInvoiceDialog } from "@/components/completion-invoice-dialog";
 import { daysUntil, periodsOverdue, formatDate, formatDateTime } from "@/lib/format";
 
 export const Route = createFileRoute("/_authed/tax")({
@@ -48,6 +49,7 @@ function TaxPage() {
   const [collabByReturn, setCollabByReturn] = useState<Map<string, string[]>>(new Map());
   const [loading, setLoading] = useState(true);
   const [busyCell, setBusyCell] = useState<string | null>(null);
+  const [invoiceFor, setInvoiceFor] = useState<{ id: string; clientName?: string | null; description: string } | null>(null);
   const [clientFilter, setClientFilter] = useState("");
   const [accFilter, setAccFilter] = useState<"all" | "overdue" | "duesoon" | "unassigned">("all");
   const [checklistType, setChecklistType] = useState<string>(ALL_TYPES);
@@ -62,7 +64,7 @@ function TaxPage() {
     const [p, r, c, o, s] = await Promise.all([
       supabase.from("tax_policies").select("*").order("sort_order"),
       fetchAll((a, b) => supabase.from("tax_returns")
-        .select("id, client_id, return_type, status, due_date, period_start, period_end, assigned_to, filed_at, filed_by")
+        .select("id, client_id, return_type, status, due_date, period_start, period_end, assigned_to, filed_at, filed_by, invoice_id")
         .order("due_date").order("id").range(a, b)),
       supabase.from("clients").select("id, company_name").order("company_name"),
       fetchAll((a, b) => supabase.from("client_tax_obligations").select("*").order("id").range(a, b)),
@@ -251,7 +253,17 @@ function TaxPage() {
 
   // Mark a filing filed (or reopen it) directly from the Checklist / Overview,
   // without needing to drill into the per-type page first.
-  async function markFiled(returnId: string, filed: boolean) {
+  async function markFiled(returnId: string, filed: boolean, skipInvoice = false) {
+    // A filing can't be marked filed until an invoice exists for it.
+    if (filed && !skipInvoice) {
+      const r = returns.find((x: any) => x.id === returnId);
+      if (r && r.status !== "filed" && !r.invoice_id) {
+        const c = clients.find((x: any) => x.id === r.client_id);
+        const pol = policies.find((x: any) => x.tax_type === r.return_type);
+        setInvoiceFor({ id: returnId, clientName: c?.company_name, description: `${pol?.label ?? r.return_type} filing — period ending ${formatDate(r.period_end)}` });
+        return;
+      }
+    }
     setBusyCell(returnId);
     const { data, error } = await supabase.from("tax_returns").update({ status: filed ? "filed" : "pending" }).eq("id", returnId).select("id");
     setBusyCell(null);
@@ -523,6 +535,18 @@ function TaxPage() {
           </div>
           <p className="text-xs text-muted-foreground">Feeds straight from the checklist — each obligated client's open period, plus every period already filed with the date it was filed. Filter by type or search a client above.</p>
         </div>
+      )}
+
+      {invoiceFor && (
+        <CompletionInvoiceDialog
+          open
+          onOpenChange={o => { if (!o) setInvoiceFor(null); }}
+          source="tax_returns"
+          sourceId={invoiceFor.id}
+          clientName={invoiceFor.clientName}
+          defaultDescription={invoiceFor.description}
+          onInvoiced={async () => { await markFiled(invoiceFor.id, true, true); setInvoiceFor(null); }}
+        />
       )}
     </div>
   );

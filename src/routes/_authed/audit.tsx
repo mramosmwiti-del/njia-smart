@@ -6,6 +6,7 @@ import { Plus, X, Trash2, Pencil } from "lucide-react";
 import { formatDate, STATUS_COLORS, statusLabel } from "@/lib/format";
 import { CsvImport } from "@/components/csv-import";
 import { ClientAssignments } from "@/components/client-assignments";
+import { CompletionInvoiceDialog } from "@/components/completion-invoice-dialog";
 import { ModuleTabBar, ClientsRollupTab, BillingTab, DocumentsTab, type ClientRollupRow } from "@/components/module-extra-tabs";
 import { useAuth } from "@/lib/auth";
 
@@ -20,6 +21,7 @@ function AuditPage() {
   const [form, setForm] = useState({ client_id: "", title: "", start_date: "", due_date: "", notes: "" });
   const [newClientName, setNewClientName] = useState("");
   const [editRow, setEditRow] = useState<any | null>(null);
+  const [invoiceFor, setInvoiceFor] = useState<any | null>(null);
 
   async function load() {
     const [e, c] = await Promise.all([
@@ -69,10 +71,16 @@ function AuditPage() {
     if (error) toast.error(error.message); else { toast.success("Removed"); load(); }
   }
 
-  async function saveEdit(e: React.FormEvent) {
-    e.preventDefault();
+  async function saveEdit(e: React.FormEvent | null, skipInvoice = false) {
+    e?.preventDefault();
     if (!editRow) return;
     const { id, clients: _c, ...payload } = editRow;
+    // Completing an audit requires an invoice under the client.
+    const before = rows.find(r => r.id === id);
+    if (!skipInvoice && payload.status === "completed" && before?.status !== "completed" && !before?.invoice_id) {
+      setInvoiceFor({ id, clientName: before?.clients?.company_name, title: payload.title });
+      return;
+    }
     const { error } = await supabase.from("engagements").update({
       client_id: payload.client_id,
       title: payload.title,
@@ -260,6 +268,18 @@ function AuditPage() {
           </form>
         </div>
       )}
+      {invoiceFor && (
+        <CompletionInvoiceDialog
+          open
+          onOpenChange={o => { if (!o) setInvoiceFor(null); }}
+          source="engagements"
+          sourceId={invoiceFor.id}
+          clientName={invoiceFor.clientName}
+          defaultDescription={`Audit — ${invoiceFor.title}`}
+          onInvoiced={async () => { await saveEdit(null, true); setInvoiceFor(null); }}
+        />
+      )}
     </div>
   );
 }
+

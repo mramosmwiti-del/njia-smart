@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Plus, X, Trash2, Pencil, Upload, FileText, Eye, Download, ChevronDown, ChevronRight, ShieldCheck, Lock, CheckCircle2 } from "lucide-react";
 import { formatDate, formatDateTime, STATUS_COLORS, statusLabel } from "@/lib/format";
 import { ClientAssignments } from "@/components/client-assignments";
+import { CompletionInvoiceDialog, LinkedInvoice } from "@/components/completion-invoice-dialog";
 import { ModuleTabBar, ClientsRollupTab, BillingTab, DocumentsTab, type ClientRollupRow } from "@/components/module-extra-tabs";
 import { useAuth } from "@/lib/auth";
 import { useLiveRefresh } from "@/hooks/use-live-refresh";
@@ -62,6 +63,7 @@ function AdvisoryPage() {
   const [uploadingMs, setUploadingMs] = useState<string | null>(null);
   const [preview, setPreview] = useState<{ url: string; title: string } | null>(null);
   const [closureNotes, setClosureNotes] = useState("");
+  const [closeInvoiceOpen, setCloseInvoiceOpen] = useState(false);
 
   async function load() {
     const [p, c, s] = await Promise.all([
@@ -78,8 +80,11 @@ function AdvisoryPage() {
 
   async function save() {
     if (!dialog) return;
-    const { id, clients: _c, advisory_milestones: _m, ...payload } = dialog.data;
+    const { id, clients: _c, advisory_milestones: _m, invoice_id: _inv, ...payload } = dialog.data;
     if (!payload.client_id || !payload.title) { toast.error("Client and title required"); return; }
+    if (dialog.mode === "edit" && payload.status === "completed" && rows.find(r => r.id === id)?.status !== "completed" && !_inv) {
+      toast.error("Use Close project in the project's close-out section — an invoice must be generated to complete it."); return;
+    }
     const op = dialog.mode === "new"
       ? supabase.from("advisory_projects").insert(payload)
       : supabase.from("advisory_projects").update(payload).eq("id", id);
@@ -114,6 +119,12 @@ function AdvisoryPage() {
     const ms = milestoneEditor.advisory_milestones ?? [];
     const open = ms.filter((m: any) => !m.done);
     if (open.length && !confirm(`${open.length} step(s) are still open. Close anyway?`)) return;
+    // Billable work can't be closed without an invoice under the client.
+    if (!milestoneEditor.invoice_id) { setCloseInvoiceOpen(true); return; }
+    await finishClose();
+  }
+  async function finishClose() {
+    if (!milestoneEditor) return;
     const { error } = await supabase.from("advisory_projects").update({
       stage: "closed", status: "completed", closure_notes: closureNotes || null,
       closed_at: new Date().toISOString(), closed_by: user?.id ?? null,
@@ -525,13 +536,24 @@ function AdvisoryPage() {
               {editorClosed ? (
                 <div className="text-xs text-muted-foreground space-y-1">
                   <div>Closed by {staffName(milestoneEditor.closed_by)} on {fmtDateTime(milestoneEditor.closed_at)}</div>
+                  <div className="flex items-center gap-2">Invoice: <LinkedInvoice invoiceId={milestoneEditor.invoice_id} /></div>
                   {milestoneEditor.closure_notes && <div className="whitespace-pre-wrap border rounded-md p-2 bg-muted/20">{milestoneEditor.closure_notes}</div>}
                   <button onClick={reopenProject} className="h-8 px-3 rounded-md border text-xs">Reopen project</button>
                 </div>
               ) : (
                 <>
                   <textarea placeholder="Closing summary: outcome, deliverables issued, client sign-off…" value={closureNotes} onChange={e => setClosureNotes(e.target.value)} rows={3} className="w-full px-3 py-2 rounded-md border bg-background text-sm" />
-                  <button onClick={closeProject} className="w-full h-9 rounded-md bg-accent text-accent-foreground text-sm font-medium">Close project</button>
+                  {!milestoneEditor.invoice_id && <p className="text-[11px] text-muted-foreground">An invoice must be generated under the client to close this project.</p>}
+                  <button onClick={closeProject} className="w-full h-9 rounded-md bg-accent text-accent-foreground text-sm font-medium">{milestoneEditor.invoice_id ? "Close project" : "Generate invoice & close project"}</button>
+                  <CompletionInvoiceDialog
+                    open={closeInvoiceOpen}
+                    onOpenChange={setCloseInvoiceOpen}
+                    source="advisory_projects"
+                    sourceId={milestoneEditor.id}
+                    clientName={milestoneEditor.clients?.company_name}
+                    defaultDescription={`Advisory — ${milestoneEditor.title}`}
+                    onInvoiced={finishClose}
+                  />
                 </>
               )}
             </div>

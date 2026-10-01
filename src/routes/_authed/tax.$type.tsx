@@ -6,6 +6,7 @@ import { ArrowLeft, Trash2, Save, X } from "lucide-react";
 import { formatDate, formatDateTime, daysUntil, periodsOverdue, STATUS_COLORS } from "@/lib/format";
 import { TaxAssigneeSelect } from "@/components/tax-assignee-select";
 import { TaxAssignees } from "@/components/tax-assignees";
+import { CompletionInvoiceDialog } from "@/components/completion-invoice-dialog";
 import { useAuth } from "@/lib/auth";
 
 export const Route = createFileRoute("/_authed/tax/$type")({
@@ -27,6 +28,7 @@ function TaxTypePage() {
   const [filter, setFilter] = useState({ client: search.client ?? "", assignee: "", status: "" });
   const [editing, setEditing] = useState<any>(null);
   const [policy, setPolicy] = useState<any>(null);
+  const [invoiceFor, setInvoiceFor] = useState<{ id: string; clientName?: string | null; description: string; then: () => Promise<void> } | null>(null);
 
   const [docCounts, setDocCounts] = useState<Record<string, number>>({});
   const [invoices, setInvoices] = useState<Record<string, any>>({});
@@ -64,7 +66,17 @@ function TaxTypePage() {
     (!filter.status || r.status === filter.status)
   ), [rows, filter]);
 
-  async function setStatus(id: string, status: string) {
+  async function setStatus(id: string, status: string, skipInvoice = false) {
+    // A filing can't be marked filed until an invoice exists for it.
+    const row = rows.find(r => r.id === id);
+    if (!skipInvoice && status === "filed" && row?.status !== "filed" && !row?.invoice_id) {
+      setInvoiceFor({
+        id, clientName: row?.clients?.company_name,
+        description: `${label} filing — period ending ${formatDate(row?.period_end)}`,
+        then: () => setStatus(id, status, true),
+      });
+      return;
+    }
     const { data, error } = await supabase.from("tax_returns").update({ status: status as any }).eq("id", id).select("id");
     if (error) toast.error(error.message);
     else if (!data || data.length === 0) toast.error("You don't have permission to update this filing.");
@@ -75,9 +87,17 @@ function TaxTypePage() {
     const { error } = await supabase.from("tax_returns").delete().eq("id", id);
     if (error) toast.error(error.message); else load();
   }
-  async function saveEdit() {
-    const { id, clients: _c, assignee: _a, ...payload } = editing;
+  async function saveEdit(skipInvoice = false) {
+    const { id, clients: _c, assignee: _a, invoice_id: _inv, ...payload } = editing;
     const before = rows.find(r => r.id === id);
+    if (!skipInvoice && payload.status === "filed" && before?.status !== "filed" && !before?.invoice_id) {
+      setInvoiceFor({
+        id, clientName: before?.clients?.company_name,
+        description: `${label} filing — period ending ${formatDate(before?.period_end)}`,
+        then: () => saveEdit(true),
+      });
+      return;
+    }
     const { data, error } = await supabase.from("tax_returns").update(payload).eq("id", id).select("id");
     if (error) { toast.error(error.message); return; }
     if (!data || data.length === 0) { toast.error("You don't have permission to edit this filing."); return; }
@@ -260,10 +280,22 @@ function TaxTypePage() {
             </div>
             <div><label className="text-xs font-medium">Due date</label><input type="date" value={editing.due_date ?? ""} onChange={e => setEditing({ ...editing, due_date: e.target.value })} className="mt-1 w-full h-9 px-3 rounded-md border bg-background text-sm" /></div>
             <div><label className="text-xs font-medium">Notes</label><textarea value={editing.notes ?? ""} onChange={e => setEditing({ ...editing, notes: e.target.value })} rows={3} className="mt-1 w-full px-3 py-2 rounded-md border bg-background text-sm" /></div>
-            <button onClick={saveEdit} className="w-full h-10 rounded-md bg-primary text-primary-foreground text-sm font-medium inline-flex items-center justify-center gap-2"><Save className="h-4 w-4" /> Save</button>
+            <button onClick={() => saveEdit()} className="w-full h-10 rounded-md bg-primary text-primary-foreground text-sm font-medium inline-flex items-center justify-center gap-2"><Save className="h-4 w-4" /> Save</button>
           </div>
         </div>
+      )}
+      {invoiceFor && (
+        <CompletionInvoiceDialog
+          open
+          onOpenChange={o => { if (!o) setInvoiceFor(null); }}
+          source="tax_returns"
+          sourceId={invoiceFor.id}
+          clientName={invoiceFor.clientName}
+          defaultDescription={invoiceFor.description}
+          onInvoiced={async () => { await invoiceFor.then(); setInvoiceFor(null); }}
+        />
       )}
     </div>
   );
 }
+

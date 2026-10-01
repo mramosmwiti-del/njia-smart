@@ -6,6 +6,7 @@ import { ArrowLeft, Upload, Download, Eye, Trash2, FileText, Send, X } from "luc
 import { formatDate, formatDateTime, STATUS_COLORS, statusLabel } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
 import { ClientAssignments } from "@/components/client-assignments";
+import { CompletionInvoiceDialog, LinkedInvoice } from "@/components/completion-invoice-dialog";
 
 export const Route = createFileRoute("/_authed/audit/$id")({ component: AuditDetail });
 
@@ -26,6 +27,7 @@ function AuditDetail() {
   const { id } = useParams({ from: "/_authed/audit/$id" });
   const { user, isAdmin } = useAuth();
   const [e, setE] = useState<any>(null);
+  const [invoiceOpen, setInvoiceOpen] = useState(false);
   const [wp, setWp] = useState<any[]>([]);
   const [notes, setNotes] = useState<any[]>([]);
   const [tasks, setTasks] = useState<any[]>([]);
@@ -67,7 +69,12 @@ function AuditDetail() {
     return () => { supabase.removeChannel(ch); };
   }, [id]);
 
-  async function saveField(field: string, value: any) {
+  async function saveField(field: string, value: any, skipInvoice = false) {
+    // Completing an audit requires an invoice under the client.
+    if (!skipInvoice && field === "status" && value === "completed" && e?.status !== "completed" && !e?.invoice_id) {
+      setInvoiceOpen(true);
+      return;
+    }
     const { error } = await supabase.from("engagements").update({ [field]: value } as any).eq("id", id);
     if (error) toast.error(error.message); else { toast.success("Saved"); load(); }
   }
@@ -155,7 +162,19 @@ function AuditDetail() {
             <div className="text-sm text-muted-foreground">{e.clients?.company_name}</div>
             {e.updated_at && <div className="text-xs text-muted-foreground mt-1">Last updated {formatDateTime(e.updated_at)}</div>}
           </div>
-          <span className={`h-fit text-xs px-2 py-1 rounded-full capitalize ${STATUS_COLORS[e.status]}`}>{statusLabel(e.status)}</span>
+          <div className="flex flex-col items-end gap-1">
+            <span className={`h-fit text-xs px-2 py-1 rounded-full capitalize ${STATUS_COLORS[e.status]}`}>{statusLabel(e.status)}</span>
+            {e.invoice_id && <LinkedInvoice invoiceId={e.invoice_id} />}
+          </div>
+          <CompletionInvoiceDialog
+            open={invoiceOpen}
+            onOpenChange={setInvoiceOpen}
+            source="engagements"
+            sourceId={e.id}
+            clientName={e.clients?.company_name}
+            defaultDescription={`Audit — ${e.title}`}
+            onInvoiced={() => saveField("status", "completed", true)}
+          />
         </div>
         <div className="mt-4 grid sm:grid-cols-4 gap-3">
           <div>
