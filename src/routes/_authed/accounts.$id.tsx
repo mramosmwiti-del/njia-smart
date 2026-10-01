@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { ArrowLeft, Plus, Trash2, Printer, Save, Paperclip, FileText } from "lucide-react";
 import { formatDate, formatDateTime, STATUS_COLORS } from "@/lib/format";
+import { useAuth } from "@/lib/auth";
 
 export const Route = createFileRoute("/_authed/accounts/$id")({ component: InvoiceDetail });
 
@@ -32,6 +33,10 @@ function termsOf(issue?: string | null, due?: string | null) {
 
 function InvoiceDetail() {
   const { id } = useParams({ from: "/_authed/accounts/$id" });
+  // Director/Admin have full rights. Everyone else can view their own invoice and
+  // record payments on it, but not edit the invoice or see the client's whole balance.
+  const { isAdmin } = useAuth();
+  const restricted = !isAdmin;
   const [inv, setInv] = useState<any>(null);
   const [items, setItems] = useState<any[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
@@ -55,7 +60,7 @@ function InvoiceDetail() {
     setItems(it.data ?? []);
     setPayments(py.data ?? []);
     // Client statement
-    if (i?.client_id) {
+    if (i?.client_id && !restricted) {
       const { data: all } = await supabase.from("invoices").select("id, invoice_number, issue_date, due_date, total, amount_paid, status").eq("client_id", i.client_id).order("issue_date", { ascending: false });
       setClientAll(all ?? []);
       const billed = (all ?? []).reduce((s, r) => s + Number(r.total || 0), 0);
@@ -87,6 +92,7 @@ function InvoiceDetail() {
     load();
   }
   async function updItem(iid: string, patch: any) {
+    if (restricted) return;
     if (patch.quantity != null || patch.unit_price != null) {
       const it = items.find(x => x.id === iid);
       patch.amount = Number(patch.quantity ?? it.quantity) * Number(patch.unit_price ?? it.unit_price);
@@ -194,27 +200,28 @@ function InvoiceDetail() {
               {items.map(it => (
                 <tr key={it.id} className="border-b align-top">
                   <td className="py-2">
-                    <input list="invoice-item-names" placeholder="Item" defaultValue={it.item_name ?? ""} onBlur={e => e.target.value !== (it.item_name ?? "") && updItem(it.id, { item_name: e.target.value || null })} className="w-full bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-ring rounded px-1 font-medium" />
-                    <input placeholder="Description" defaultValue={it.description} onBlur={e => e.target.value !== it.description && updItem(it.id, { description: e.target.value })} className="w-full bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-ring rounded px-1 text-xs text-muted-foreground" />
+                    <input list="invoice-item-names" placeholder="Item" disabled={restricted} defaultValue={it.item_name ?? ""} onBlur={e => e.target.value !== (it.item_name ?? "") && updItem(it.id, { item_name: e.target.value || null })} className="w-full bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-ring rounded px-1 font-medium" />
+                    <input placeholder="Description" disabled={restricted} defaultValue={it.description} onBlur={e => e.target.value !== it.description && updItem(it.id, { description: e.target.value })} className="w-full bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-ring rounded px-1 text-xs text-muted-foreground" />
                   </td>
-                  <td className="py-2"><input type="date" defaultValue={it.service_date ?? ""} onBlur={e => e.target.value !== (it.service_date ?? "") && updItem(it.id, { service_date: e.target.value || null })} className="w-32 bg-transparent border-0 focus:ring-1 rounded text-xs" /></td>
-                  <td className="py-2 text-right"><input type="number" step="0.01" defaultValue={it.quantity} onBlur={e => Number(e.target.value) !== Number(it.quantity) && updItem(it.id, { quantity: Number(e.target.value) })} className="w-16 text-right bg-transparent border-0 focus:ring-1 rounded" /></td>
-                  <td className="py-2 text-right"><input type="number" step="0.01" defaultValue={it.unit_price} onBlur={e => Number(e.target.value) !== Number(it.unit_price) && updItem(it.id, { unit_price: Number(e.target.value) })} className="w-24 text-right bg-transparent border-0 focus:ring-1 rounded" /></td>
+                  <td className="py-2"><input type="date" disabled={restricted} defaultValue={it.service_date ?? ""} onBlur={e => e.target.value !== (it.service_date ?? "") && updItem(it.id, { service_date: e.target.value || null })} className="w-32 bg-transparent border-0 focus:ring-1 rounded text-xs" /></td>
+                  <td className="py-2 text-right"><input type="number" step="0.01" disabled={restricted} defaultValue={it.quantity} onBlur={e => Number(e.target.value) !== Number(it.quantity) && updItem(it.id, { quantity: Number(e.target.value) })} className="w-16 text-right bg-transparent border-0 focus:ring-1 rounded" /></td>
+                  <td className="py-2 text-right"><input type="number" step="0.01" disabled={restricted} defaultValue={it.unit_price} onBlur={e => Number(e.target.value) !== Number(it.unit_price) && updItem(it.id, { unit_price: Number(e.target.value) })} className="w-24 text-right bg-transparent border-0 focus:ring-1 rounded" /></td>
                   <td className="py-2 text-right font-medium">{money(it.amount)}</td>
                   <td className="py-2 pl-3">
-                    <select value={it.tax_code ?? "Standard"} onChange={e => updItem(it.id, { tax_code: e.target.value })} className="w-full bg-transparent border rounded text-xs h-7 print:border-0 print:appearance-none">
+                    <select disabled={restricted} value={it.tax_code ?? "Standard"} onChange={e => updItem(it.id, { tax_code: e.target.value })} className="w-full bg-transparent border rounded text-xs h-7 print:border-0 print:appearance-none">
                       {TAX_CODES.map(t => <option key={t} value={t}>{t}</option>)}
                     </select>
                     <div className="text-[11px] text-muted-foreground mt-0.5">{money(it.tax_amount)}</div>
                   </td>
-                  <td className="py-2 text-right print:hidden"><button onClick={() => delItem(it.id)} className="text-muted-foreground hover:text-destructive"><Trash2 className="h-4 w-4" /></button></td>
+                  <td className="py-2 text-right print:hidden">{!restricted && <button onClick={() => delItem(it.id)} className="text-muted-foreground hover:text-destructive"><Trash2 className="h-4 w-4" /></button>}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
 
-        {/* Add item */}
+        {/* Add item (Director/Admin only) */}
+        {!restricted && (
         <form onSubmit={addItem} className="grid grid-cols-12 gap-2 mb-4 print:hidden">
           <input list="invoice-item-names" placeholder="Item (e.g. Tax Advisory: Tax Advisory and Consultancy)" value={newItem.item_name} onChange={e => setNewItem({ ...newItem, item_name: e.target.value })} className="col-span-6 h-9 px-2 border rounded-md bg-background text-sm" />
           <input placeholder="Description (e.g. Monthly returns filing)" value={newItem.description} onChange={e => setNewItem({ ...newItem, description: e.target.value })} className="col-span-6 h-9 px-2 border rounded-md bg-background text-sm" />
@@ -226,6 +233,7 @@ function InvoiceDetail() {
           </select>
           <button type="submit" className="col-span-3 h-9 rounded-md bg-primary text-primary-foreground text-sm inline-flex items-center justify-center gap-1"><Plus className="h-4 w-4" /> Add</button>
         </form>
+        )}
 
         {/* Totals */}
         <div className="flex justify-end">
@@ -242,7 +250,8 @@ function InvoiceDetail() {
         {inv.notes && <div className="mt-4 text-xs text-muted-foreground border-t pt-3"><strong>Notes:</strong> {inv.notes}</div>}
       </div>
 
-      {/* Controls: status, dates, notes */}
+      {/* Controls: status, dates, notes (Director/Admin only) */}
+      {!restricted && (
       <div className="rounded-lg border bg-card p-4 print:hidden">
         <h3 className="text-sm font-semibold mb-3">Invoice Settings</h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
@@ -280,6 +289,7 @@ function InvoiceDetail() {
           <textarea defaultValue={inv.notes ?? ""} onBlur={e => e.target.value !== (inv.notes ?? "") && updInv({ notes: e.target.value })} rows={2} className="w-full px-2 py-1 border rounded-md bg-background text-sm" />
         </div>
       </div>
+      )}
 
       {/* Payments */}
       <div className="rounded-lg border bg-card p-4 print:hidden">
@@ -327,7 +337,7 @@ function InvoiceDetail() {
                     : <span className="text-xs text-muted-foreground">—</span>}
                 </td>
                 <td className="p-2 text-right font-medium text-emerald-700">{money(p.amount)}</td>
-                <td className="p-2 text-right"><button onClick={() => delPayment(p.id)} className="text-muted-foreground hover:text-destructive"><Trash2 className="h-4 w-4" /></button></td>
+                <td className="p-2 text-right">{!restricted && <button onClick={() => delPayment(p.id)} className="text-muted-foreground hover:text-destructive"><Trash2 className="h-4 w-4" /></button>}</td>
               </tr>
             ))}
           </tbody>
@@ -336,7 +346,7 @@ function InvoiceDetail() {
 
 
       {/* Client statement */}
-      {statement && (
+      {!restricted && statement && (
         <div className="rounded-lg border bg-card p-4 print:hidden">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold">Client Statement — {inv.clients?.company_name}</h3>

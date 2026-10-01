@@ -42,7 +42,10 @@ function csvCell(v: any) {
 }
 
 function AccountsPage() {
-  const { isAdmin } = useAuth();
+  const { isAdmin, user } = useAuth();
+  // Director/Admin see the whole book. Everyone else only sees invoices raised
+  // on their own clients (enforced by RLS too) and never the firm-wide totals.
+  const restricted = !isAdmin;
   const [rows, setRows] = useState<any[]>([]);
   const [clients, setClients] = useState<any[]>([]);
   const [q, setQ] = useState("");
@@ -73,7 +76,15 @@ function AccountsPage() {
     ]);
     if (i.error) toast.error(i.error.message);
     setRows(i.data ?? []);
-    setClients(c.data ?? []);
+    // Restricted users can only bill/receive against clients assigned to them
+    // (plus clients already on one of their invoices).
+    let clientList = c.data ?? [];
+    if (restricted && user) {
+      const { data: mine } = await supabase.from("client_assignments").select("client_id").eq("user_id", user.id);
+      const ids = new Set<string>([...((mine as any[]) ?? []).map(m => m.client_id), ...(i.data ?? []).map((r: any) => r.client_id)]);
+      clientList = clientList.filter((cl: any) => ids.has(cl.id));
+    }
+    setClients(clientList);
     setPayments(p.data ?? []);
     setStaff(prof.data ?? []);
 
@@ -87,7 +98,7 @@ function AccountsPage() {
     }
     setHandlersByInvoice(map);
   }
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [user?.id, isAdmin]);
 
   const staffName = (id: string) => staff.find(s => s.id === id)?.full_name ?? "Unknown";
   const handlerNames = (invoiceId: string) => (handlersByInvoice[invoiceId] ?? []).map(staffName);
@@ -194,7 +205,7 @@ function AccountsPage() {
       r.service_line ?? "", Number(r.total || 0).toFixed(2), Number(r.amount_paid || 0).toFixed(2), r.status ?? "",
     ].map(csvCell).join(","));
     const csv = "\uFEFF" + [header.map(csvCell).join(","), ...lines].join("\r\n");
-    const who = handlerFilter === "all" ? "all" : handlerFilter === "none" ? "unassigned" : staffName(handlerFilter).toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    const who = restricted ? "my" : handlerFilter === "all" ? "all" : handlerFilter === "none" ? "unassigned" : staffName(handlerFilter).toLowerCase().replace(/[^a-z0-9]+/g, "-");
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
     a.download = `invoices-${who}-${today}.csv`;
@@ -207,25 +218,29 @@ function AccountsPage() {
       <div className="flex flex-wrap items-center gap-3 justify-between">
         <div>
           <h1 className="text-2xl font-bold">Accounts & Billing</h1>
-          <p className="text-sm text-muted-foreground">{rows.length} invoices</p>
+          <p className="text-sm text-muted-foreground">{restricted ? `${rows.length} of your invoices` : `${rows.length} invoices`}</p>
         </div>
         <div className="flex gap-2">
           <button onClick={() => setPayOpen(true)} className="inline-flex items-center gap-2 px-3 h-9 rounded-md border text-sm font-medium">
             <Receipt className="h-4 w-4" /> Record Payment
           </button>
-          <button onClick={() => setOpen(true)} className="inline-flex items-center gap-2 px-3 h-9 rounded-md bg-primary text-primary-foreground text-sm font-medium">
-            <Plus className="h-4 w-4" /> New Invoice
-          </button>
+          {!restricted && (
+            <button onClick={() => setOpen(true)} className="inline-flex items-center gap-2 px-3 h-9 rounded-md bg-primary text-primary-foreground text-sm font-medium">
+              <Plus className="h-4 w-4" /> New Invoice
+            </button>
+          )}
         </div>
       </div>
 
-      {/* KPIs */}
+      {/* KPIs: firm-wide totals are for Director/Admin only */}
+      {!restricted && (
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Kpi label="Total Billed" value={money(kpi.billed)} icon={<FileText className="h-4 w-4" />} tone="blue" />
         <Kpi label="Collected" value={money(kpi.collected)} icon={<Wallet className="h-4 w-4" />} tone="emerald" />
         <Kpi label="Outstanding" value={money(kpi.outstanding)} icon={<TrendingUp className="h-4 w-4" />} tone="amber" />
         <Kpi label="Overdue" value={money(kpi.overdue)} icon={<AlertCircle className="h-4 w-4" />} tone="red" />
       </div>
+      )}
 
       {/* Filters */}
       <div className="flex flex-wrap gap-2 items-center">
@@ -234,11 +249,13 @@ function AccountsPage() {
           <option value="all">All statuses</option>
           {STATUS.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
-        <select value={handlerFilter} onChange={e => setHandlerFilter(e.target.value)} className="h-9 px-2 rounded-md border bg-background text-sm" title="Show one person's portfolio">
-          <option value="all">All handlers</option>
-          <option value="none">No handler assigned</option>
-          {staff.map(s => <option key={s.id} value={s.id}>{s.full_name ?? "Unnamed"}</option>)}
-        </select>
+        {!restricted && (
+          <select value={handlerFilter} onChange={e => setHandlerFilter(e.target.value)} className="h-9 px-2 rounded-md border bg-background text-sm" title="Show one person's portfolio">
+            <option value="all">All handlers</option>
+            <option value="none">No handler assigned</option>
+            {staff.map(s => <option key={s.id} value={s.id}>{s.full_name ?? "Unnamed"}</option>)}
+          </select>
+        )}
         <button onClick={exportCsv} className="h-9 px-3 rounded-md border text-sm inline-flex items-center gap-2 hover:bg-muted"><Download className="h-4 w-4" /> Export CSV</button>
       </div>
 
@@ -253,6 +270,7 @@ function AccountsPage() {
               <th className="text-left p-3">Due</th>
               <th className="text-left p-3">Terms</th>
               <th className="text-left p-3">Item</th>
+              <th className="text-right p-3">Collected</th>
               <th className="text-right p-3">Due receipt</th>
               <th className="text-left p-3">Handled by</th>
               <th className="text-left p-3">Status</th>
@@ -261,7 +279,7 @@ function AccountsPage() {
           </thead>
           <tbody>
             {filtered.length === 0 && (
-              <tr><td colSpan={10} className="p-8 text-center text-muted-foreground">No invoices match this view.</td></tr>
+              <tr><td colSpan={11} className="p-8 text-center text-muted-foreground">No invoices match this view.</td></tr>
             )}
             {filtered.map(r => {
               const bal = Number(r.total || 0) - Number(r.amount_paid || 0);
@@ -275,6 +293,7 @@ function AccountsPage() {
                   <td className="p-3">{formatDate(r.due_date)}</td>
                   <td className="p-3 whitespace-nowrap">{termsOf(r.issue_date, r.due_date)}</td>
                   <td className="p-3 max-w-[260px] truncate" title={item}>{item || "—"}</td>
+                  <td className="p-3 text-right whitespace-nowrap text-emerald-700">{money(r.amount_paid)}</td>
                   <td className={`p-3 text-right whitespace-nowrap ${bal > 0 ? "text-amber-700" : ""}`}>{money(bal)}</td>
                   <td className="p-3">
                     {names.length === 0 ? <span className="text-xs text-muted-foreground">—</span> : (
