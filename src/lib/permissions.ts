@@ -144,13 +144,14 @@ for (const role of Object.keys(ROLE_ACCESS) as AppRole[]) {
   ROLE_ACCESS[role].ict_service_desk = role === "admin" ? "full" : "assigned";
 }
 
-// Accounts (financial records) is restricted to Director, Admin and
-// Accountant. Everyone else — including assistants/interns, who would
-// otherwise inherit "assigned" access from ASSISTANT_ASSIGNED — gets none, so
-// the sidebar entry is hidden for them.
-const ACCOUNTS_ROLES: AppRole[] = ["director", "admin", "accountant"];
+// Accounts (financial records): Director and Admin have full rights and see
+// the whole book (balances, total collected, every invoice). Every other role
+// is "assigned": they only see the invoices raised on clients assigned to
+// them, can record/update payments on those, and never see firm-wide totals.
+// Enforced in the database by get_module_rank + the invoices/payments policies
+// (migration 20261002090000_accounts_own_invoices_only.sql).
 for (const role of Object.keys(ROLE_ACCESS) as AppRole[]) {
-  ROLE_ACCESS[role].accounts = ACCOUNTS_ROLES.includes(role) ? "full" : "none";
+  ROLE_ACCESS[role].accounts = role === "director" || role === "admin" ? "full" : "assigned";
 }
 
 // Activity & Team (staff management and the audit trail) is Admin only. The
