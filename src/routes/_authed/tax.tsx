@@ -45,6 +45,7 @@ function TaxPage() {
   const [clients, setClients] = useState<any[]>([]);
   const [staff, setStaff] = useState<any[]>([]);
   const [obligations, setObligations] = useState<any[]>([]);
+  const [collabByReturn, setCollabByReturn] = useState<Map<string, string[]>>(new Map());
   const [loading, setLoading] = useState(true);
   const [busyCell, setBusyCell] = useState<string | null>(null);
   const [clientFilter, setClientFilter] = useState("");
@@ -72,6 +73,10 @@ function TaxPage() {
     setClients(c.data ?? []);
     setStaff(s.data ?? []);
     setObligations(o as any[]);
+    const ca = await fetchAll((a, b) => supabase.from("tax_return_assignees" as any).select("id, tax_return_id, user_id").order("id").range(a, b));
+    const cm = new Map<string, string[]>();
+    (ca as any[]).forEach((c: any) => { if (!cm.has(c.tax_return_id)) cm.set(c.tax_return_id, []); cm.get(c.tax_return_id)!.push(c.user_id); });
+    setCollabByReturn(cm);
     setLoading(false);
   }
   useEffect(() => { load(); }, []);
@@ -479,10 +484,10 @@ function TaxPage() {
           <div className="bg-card border rounded-lg overflow-hidden">
             <table className="w-full text-sm">
               <thead className="bg-muted/40 text-left text-xs text-muted-foreground border-b">
-                <tr><th className="py-2 px-3">Client</th><th className="py-2 px-3">Tax type</th><th className="py-2 px-3">Status</th><th className="py-2 px-3">Period ending</th><th className="py-2 px-3">Due date</th><th className="py-2 px-3">Filed on</th></tr>
+                <tr><th className="py-2 px-3">Client</th><th className="py-2 px-3">Tax type</th><th className="py-2 px-3">Status</th><th className="py-2 px-3">Period ending</th><th className="py-2 px-3">Due date</th><th className="py-2 px-3">Assigned to</th><th className="py-2 px-3">Filed on</th></tr>
               </thead>
               <tbody>
-                {filteredReportRows.length === 0 && <tr><td colSpan={6} className="py-8 text-center text-muted-foreground">No obligations match this view.</td></tr>}
+                {filteredReportRows.length === 0 && <tr><td colSpan={7} className="py-8 text-center text-muted-foreground">No obligations match this view.</td></tr>}
                 {filteredReportRows.map(row => (
                   <tr key={row.key} className="border-b last:border-0 hover:bg-muted/20">
                     <td className="py-1.5 px-3 font-medium">{row.client.company_name}</td>
@@ -496,6 +501,13 @@ function TaxPage() {
                     </td>
                     <td className="py-1.5 px-3 text-xs">{row.cur?.period_end ? formatDate(row.cur.period_end) : "—"}</td>
                     <td className="py-1.5 px-3 text-xs">{row.cur?.due_date ? formatDate(row.cur.due_date) : "—"}</td>
+                    <td className="py-1.5 px-3 text-xs">
+                      {(() => {
+                        const ids = [row.cur?.assigned_to, ...(row.cur ? collabByReturn.get(row.cur.id) ?? [] : [])].filter(Boolean) as string[];
+                        const names = [...new Set(ids)].map(id => staffMap.get(id) ?? "Unknown");
+                        return names.length ? names.join(", ") : <span className="text-muted-foreground">Unassigned</span>;
+                      })()}
+                    </td>
                     <td className="py-1.5 px-3 text-xs text-muted-foreground">
                       {row.filed && row.cur?.filed_at ? (
                         <>
