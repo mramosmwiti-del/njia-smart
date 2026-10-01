@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Plus, X, Trash2, FileText, Wallet, AlertCircle, TrendingUp, Paperclip, Receipt } from "lucide-react";
+import { Plus, X, Trash2, FileText, Wallet, AlertCircle, TrendingUp, Paperclip, Receipt, Download } from "lucide-react";
 import { formatDate, STATUS_COLORS } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
 
@@ -26,12 +26,32 @@ function money(n: number) {
   return "KES " + Number(n || 0).toLocaleString("en-KE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+// Net N days between issue and due date (0 or less = due on receipt).
+function termsOf(issue?: string | null, due?: string | null) {
+  if (!issue || !due) return "—";
+  const d = Math.round((new Date(due).getTime() - new Date(issue).getTime()) / 86400000);
+  return d <= 0 ? "Due on receipt" : `Net ${d}`;
+}
+function itemsOf(r: any) {
+  const list = [...(r.invoice_items ?? [])].sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+  return list.map((i: any) => i.description).filter(Boolean).join("; ");
+}
+function csvCell(v: any) {
+  const t = v == null ? "" : String(v);
+  return /[",\n\r]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+}
+
 function AccountsPage() {
   const { isAdmin } = useAuth();
   const [rows, setRows] = useState<any[]>([]);
   const [clients, setClients] = useState<any[]>([]);
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  // Who handled the client's account when the invoice was raised. Kept in its
+  // own table (invoice_handlers) and shown only here, never on the invoice.
+  const [staff, setStaff] = useState<any[]>([]);
+  const [handlersByInvoice, setHandlersByInvoice] = useState<Record<string, string[]>>({});
+  const [handlerFilter, setHandlerFilter] = useState<string>("all"); // "all" | "none" | user id
   const [open, setOpen] = useState(false);
   const today = new Date().toISOString().slice(0, 10);
   const in30 = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
@@ -45,17 +65,32 @@ function AccountsPage() {
   const [savingPay, setSavingPay] = useState(false);
 
   async function load() {
-    const [i, c, p] = await Promise.all([
-      supabase.from("invoices").select("*, clients(company_name)").order("issue_date", { ascending: false }),
+    const [i, c, p, prof] = await Promise.all([
+      supabase.from("invoices").select("*, clients(company_name), invoice_items(description, sort_order)").order("issue_date", { ascending: false }),
       supabase.from("clients").select("id, company_name").order("company_name"),
       supabase.from("payments").select("*, clients(company_name), invoices(invoice_number)").order("payment_date", { ascending: false }).limit(50),
+      supabase.from("profiles").select("id, full_name").order("full_name"),
     ]);
     if (i.error) toast.error(i.error.message);
     setRows(i.data ?? []);
     setClients(c.data ?? []);
     setPayments(p.data ?? []);
+    setStaff(prof.data ?? []);
+
+    // Handlers, paged so a large book isn't cut off at the 1000-row default.
+    const map: Record<string, string[]> = {};
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await supabase.from("invoice_handlers" as any).select("invoice_id, user_id").order("id").range(from, from + 999);
+      if (error) { toast.error(error.message); break; }
+      ((data as any[]) ?? []).forEach(h => { (map[h.invoice_id] ??= []).push(h.user_id); });
+      if (!data || data.length < 1000) break;
+    }
+    setHandlersByInvoice(map);
   }
   useEffect(() => { load(); }, []);
+
+  const staffName = (id: string) => staff.find(s => s.id === id)?.full_name ?? "Unknown";
+  const handlerNames = (invoiceId: string) => (handlersByInvoice[invoiceId] ?? []).map(staffName);
 
   async function createInvoice(e: React.FormEvent) {
     e.preventDefault();
@@ -125,19 +160,47 @@ function AccountsPage() {
     if (error) toast.error(error.message); else { toast.success("Deleted"); load(); }
   }
 
-  const filtered = useMemo(() => rows.filter(r =>
+  // One person's portfolio = invoices raised on clients they were assigned to.
+  const portfolioRows = useMemo(() => rows.filter(r =>
+    handlerFilter === "all" ? true
+      : handlerFilter === "none" ? (handlersByInvoice[r.id] ?? []).length === 0
+      : (handlersByInvoice[r.id] ?? []).includes(handlerFilter)
+  ), [rows, handlerFilter, handlersByInvoice]);
+
+  const filtered = useMemo(() => portfolioRows.filter(r =>
     (statusFilter === "all" || r.status === statusFilter) &&
     (!q || r.invoice_number?.toLowerCase().includes(q.toLowerCase()) ||
       r.clients?.company_name?.toLowerCase().includes(q.toLowerCase()))
-  ), [rows, q, statusFilter]);
+  ), [portfolioRows, q, statusFilter]);
 
+  // Totals follow the selected person's portfolio (all invoices when none is picked).
   const kpi = useMemo(() => {
-    const billed = rows.reduce((s, r) => s + Number(r.total || 0), 0);
-    const collected = rows.reduce((s, r) => s + Number(r.amount_paid || 0), 0);
+    const billed = portfolioRows.reduce((s, r) => s + Number(r.total || 0), 0);
+    const collected = portfolioRows.reduce((s, r) => s + Number(r.amount_paid || 0), 0);
     const outstanding = billed - collected;
-    const overdue = rows.filter(r => r.status === "overdue").reduce((s, r) => s + (Number(r.total) - Number(r.amount_paid)), 0);
+    const overdue = portfolioRows.filter(r => r.status === "overdue").reduce((s, r) => s + (Number(r.total) - Number(r.amount_paid)), 0);
     return { billed, collected, outstanding, overdue };
-  }, [rows]);
+  }, [portfolioRows]);
+
+  // Exports exactly what is on screen (so a person's portfolio exports as theirs).
+  function exportCsv() {
+    if (filtered.length === 0) return toast.error("Nothing to export");
+    const header = ["Invoice Number", "Customer", "Date", "Due", "Terms", "Item", "Due Receipt", "Handled By", "Service Line", "Total", "Paid", "Status"];
+    const lines = filtered.map(r => [
+      r.invoice_number, r.clients?.company_name ?? "", r.issue_date ?? "", r.due_date ?? "",
+      termsOf(r.issue_date, r.due_date), itemsOf(r),
+      (Number(r.total || 0) - Number(r.amount_paid || 0)).toFixed(2),
+      handlerNames(r.id).join("; "),
+      r.service_line ?? "", Number(r.total || 0).toFixed(2), Number(r.amount_paid || 0).toFixed(2), r.status ?? "",
+    ].map(csvCell).join(","));
+    const csv = "\uFEFF" + [header.map(csvCell).join(","), ...lines].join("\r\n");
+    const who = handlerFilter === "all" ? "all" : handlerFilter === "none" ? "unassigned" : staffName(handlerFilter).toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    a.download = `invoices-${who}-${today}.csv`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
 
   return (
     <div className="space-y-4">
@@ -171,6 +234,12 @@ function AccountsPage() {
           <option value="all">All statuses</option>
           {STATUS.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
+        <select value={handlerFilter} onChange={e => setHandlerFilter(e.target.value)} className="h-9 px-2 rounded-md border bg-background text-sm" title="Show one person's portfolio">
+          <option value="all">All handlers</option>
+          <option value="none">No handler assigned</option>
+          {staff.map(s => <option key={s.id} value={s.id}>{s.full_name ?? "Unnamed"}</option>)}
+        </select>
+        <button onClick={exportCsv} className="h-9 px-3 rounded-md border text-sm inline-flex items-center gap-2 hover:bg-muted"><Download className="h-4 w-4" /> Export CSV</button>
       </div>
 
       {/* Table */}
@@ -178,34 +247,40 @@ function AccountsPage() {
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-xs uppercase tracking-wider text-muted-foreground">
             <tr>
-              <th className="text-left p-3">Invoice #</th>
-              <th className="text-left p-3">Client</th>
-              <th className="text-left p-3">Service</th>
-              <th className="text-left p-3">Issue</th>
+              <th className="text-left p-3">Invoice number</th>
+              <th className="text-left p-3">Customer</th>
+              <th className="text-left p-3">Date</th>
               <th className="text-left p-3">Due</th>
-              <th className="text-right p-3">Total</th>
-              <th className="text-right p-3">Paid</th>
-              <th className="text-right p-3">Balance</th>
+              <th className="text-left p-3">Terms</th>
+              <th className="text-left p-3">Item</th>
+              <th className="text-right p-3">Due receipt</th>
+              <th className="text-left p-3">Handled by</th>
               <th className="text-left p-3">Status</th>
               <th className="p-3" />
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 && (
-              <tr><td colSpan={10} className="p-8 text-center text-muted-foreground">No invoices yet.</td></tr>
+              <tr><td colSpan={10} className="p-8 text-center text-muted-foreground">No invoices match this view.</td></tr>
             )}
             {filtered.map(r => {
               const bal = Number(r.total || 0) - Number(r.amount_paid || 0);
+              const item = itemsOf(r);
+              const names = handlerNames(r.id);
               return (
                 <tr key={r.id} className="border-t hover:bg-muted/30">
                   <td className="p-3"><Link to="/accounts/$id" params={{ id: r.id }} className="font-medium text-primary">{r.invoice_number}</Link></td>
                   <td className="p-3">{r.clients?.company_name ?? "—"}</td>
-                  <td className="p-3">{r.service_line ?? "—"}</td>
                   <td className="p-3">{formatDate(r.issue_date)}</td>
                   <td className="p-3">{formatDate(r.due_date)}</td>
-                  <td className="p-3 text-right">{money(r.total)}</td>
-                  <td className="p-3 text-right text-emerald-700">{money(r.amount_paid)}</td>
-                  <td className={`p-3 text-right ${bal > 0 ? "text-amber-700" : ""}`}>{money(bal)}</td>
+                  <td className="p-3 whitespace-nowrap">{termsOf(r.issue_date, r.due_date)}</td>
+                  <td className="p-3 max-w-[260px] truncate" title={item}>{item || "—"}</td>
+                  <td className={`p-3 text-right whitespace-nowrap ${bal > 0 ? "text-amber-700" : ""}`}>{money(bal)}</td>
+                  <td className="p-3">
+                    {names.length === 0 ? <span className="text-xs text-muted-foreground">—</span> : (
+                      <div className="flex flex-wrap gap-1">{names.map((n, i) => <span key={i} className="text-xs px-1.5 py-0.5 rounded bg-muted whitespace-nowrap">{n}</span>)}</div>
+                    )}
+                  </td>
                   <td className="p-3"><span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[r.status] ?? "bg-muted"}`}>{r.status}</span></td>
                   <td className="p-3 text-right">
                     {isAdmin && <button onClick={() => del(r.id)} className="p-1 text-muted-foreground hover:text-destructive"><Trash2 className="h-4 w-4" /></button>}
