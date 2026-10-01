@@ -20,6 +20,16 @@ function money(n: any) {
   return "KES " + Number(n || 0).toLocaleString("en-KE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+const TAX_CODES = ["Standard", "Exempt", "Zero-rated"];
+const DEFAULT_ITEM_NAMES = ["Tax Advisory: Tax Advisory and Consultancy"];
+
+// Net N days between issue and due date (0 or less = due on receipt).
+function termsOf(issue?: string | null, due?: string | null) {
+  if (!issue || !due) return "—";
+  const d = Math.round((new Date(due).getTime() - new Date(issue).getTime()) / 86400000);
+  return d <= 0 ? "Due on receipt" : `Net ${d}`;
+}
+
 function InvoiceDetail() {
   const { id } = useParams({ from: "/_authed/accounts/$id" });
   const [inv, setInv] = useState<any>(null);
@@ -29,7 +39,8 @@ function InvoiceDetail() {
   const [statement, setStatement] = useState<{ billed: number; paid: number; balance: number } | null>(null);
 
   const today = new Date().toISOString().slice(0, 10);
-  const [newItem, setNewItem] = useState({ description: "", quantity: 1, unit_price: 0 });
+  const [newItem, setNewItem] = useState({ item_name: "", description: "", service_date: "", tax_code: "Standard", quantity: 1, unit_price: 0 });
+  const [itemNames, setItemNames] = useState<string[]>(DEFAULT_ITEM_NAMES);
   const [newPay, setNewPay] = useState({ amount: 0, payment_date: today, method: "mpesa", reference: "", notes: "" });
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -53,14 +64,23 @@ function InvoiceDetail() {
     }
   }
   useEffect(() => { load(); }, [id]);
+  // Suggestions for the Item field: names already used on other invoices.
+  useEffect(() => {
+    supabase.from("invoice_items" as any).select("item_name").not("item_name", "is", null).limit(500).then(({ data }) => {
+      const used = ((data as any[]) ?? []).map(r => r.item_name as string).filter(Boolean);
+      setItemNames(Array.from(new Set([...DEFAULT_ITEM_NAMES, ...used])).sort());
+    });
+  }, []);
 
   async function addItem(e: React.FormEvent) {
     e.preventDefault();
     if (!newItem.description) return;
     const amount = Number(newItem.quantity) * Number(newItem.unit_price);
-    const { error } = await supabase.from("invoice_items").insert({ invoice_id: id, ...newItem, amount, sort_order: items.length });
+    const { error } = await supabase.from("invoice_items").insert({
+      invoice_id: id, ...newItem, item_name: newItem.item_name || null, service_date: newItem.service_date || null, amount, sort_order: items.length,
+    } as any);
     if (error) toast.error(error.message);
-    else { setNewItem({ description: "", quantity: 1, unit_price: 0 }); load(); }
+    else { setNewItem({ item_name: "", description: "", service_date: "", tax_code: "Standard", quantity: 1, unit_price: 0 }); load(); }
   }
   async function delItem(iid: string) {
     await supabase.from("invoice_items").delete().eq("id", iid);
@@ -148,41 +168,63 @@ function InvoiceDetail() {
           <div className="text-right space-y-1">
             <div><span className="text-xs text-muted-foreground">Issue Date: </span>{formatDate(inv.issue_date)}</div>
             <div><span className="text-xs text-muted-foreground">Due Date: </span>{formatDate(inv.due_date)}</div>
+            <div><span className="text-xs text-muted-foreground">Terms: </span>{termsOf(inv.issue_date, inv.due_date)}</div>
+            {inv.location && <div><span className="text-xs text-muted-foreground">Location: </span>{inv.location}</div>}
             <div><span className="text-xs text-muted-foreground">Service: </span>{inv.service_line ?? "—"}</div>
           </div>
         </div>
 
         {/* Items */}
-        <table className="w-full text-sm mb-4">
-          <thead className="border-b">
-            <tr className="text-xs uppercase text-muted-foreground">
-              <th className="text-left py-2">Description</th>
-              <th className="text-right py-2 w-20">Qty</th>
-              <th className="text-right py-2 w-32">Unit Price</th>
-              <th className="text-right py-2 w-32">Amount</th>
-              <th className="w-10 print:hidden" />
-            </tr>
-          </thead>
-          <tbody>
-            {items.length === 0 && <tr><td colSpan={5} className="py-4 text-center text-muted-foreground">No line items yet.</td></tr>}
-            {items.map(it => (
-              <tr key={it.id} className="border-b">
-                <td className="py-2"><input defaultValue={it.description} onBlur={e => e.target.value !== it.description && updItem(it.id, { description: e.target.value })} className="w-full bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-ring rounded px-1" /></td>
-                <td className="py-2 text-right"><input type="number" step="0.01" defaultValue={it.quantity} onBlur={e => Number(e.target.value) !== Number(it.quantity) && updItem(it.id, { quantity: Number(e.target.value) })} className="w-16 text-right bg-transparent border-0 focus:ring-1 rounded" /></td>
-                <td className="py-2 text-right"><input type="number" step="0.01" defaultValue={it.unit_price} onBlur={e => Number(e.target.value) !== Number(it.unit_price) && updItem(it.id, { unit_price: Number(e.target.value) })} className="w-28 text-right bg-transparent border-0 focus:ring-1 rounded" /></td>
-                <td className="py-2 text-right font-medium">{money(it.amount)}</td>
-                <td className="py-2 text-right print:hidden"><button onClick={() => delItem(it.id)} className="text-muted-foreground hover:text-destructive"><Trash2 className="h-4 w-4" /></button></td>
+        <datalist id="invoice-item-names">{itemNames.map(n => <option key={n} value={n} />)}</datalist>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm mb-4">
+            <thead className="border-b">
+              <tr className="text-xs uppercase text-muted-foreground">
+                <th className="text-left py-2">Item / Description</th>
+                <th className="text-left py-2 w-36">Service Date</th>
+                <th className="text-right py-2 w-20">Qty</th>
+                <th className="text-right py-2 w-28">Rate</th>
+                <th className="text-right py-2 w-32">Amount</th>
+                <th className="text-left py-2 pl-3 w-32">Tax</th>
+                <th className="w-10 print:hidden" />
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {items.length === 0 && <tr><td colSpan={7} className="py-4 text-center text-muted-foreground">No line items yet.</td></tr>}
+              {items.map(it => (
+                <tr key={it.id} className="border-b align-top">
+                  <td className="py-2">
+                    <input list="invoice-item-names" placeholder="Item" defaultValue={it.item_name ?? ""} onBlur={e => e.target.value !== (it.item_name ?? "") && updItem(it.id, { item_name: e.target.value || null })} className="w-full bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-ring rounded px-1 font-medium" />
+                    <input placeholder="Description" defaultValue={it.description} onBlur={e => e.target.value !== it.description && updItem(it.id, { description: e.target.value })} className="w-full bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-ring rounded px-1 text-xs text-muted-foreground" />
+                  </td>
+                  <td className="py-2"><input type="date" defaultValue={it.service_date ?? ""} onBlur={e => e.target.value !== (it.service_date ?? "") && updItem(it.id, { service_date: e.target.value || null })} className="w-32 bg-transparent border-0 focus:ring-1 rounded text-xs" /></td>
+                  <td className="py-2 text-right"><input type="number" step="0.01" defaultValue={it.quantity} onBlur={e => Number(e.target.value) !== Number(it.quantity) && updItem(it.id, { quantity: Number(e.target.value) })} className="w-16 text-right bg-transparent border-0 focus:ring-1 rounded" /></td>
+                  <td className="py-2 text-right"><input type="number" step="0.01" defaultValue={it.unit_price} onBlur={e => Number(e.target.value) !== Number(it.unit_price) && updItem(it.id, { unit_price: Number(e.target.value) })} className="w-24 text-right bg-transparent border-0 focus:ring-1 rounded" /></td>
+                  <td className="py-2 text-right font-medium">{money(it.amount)}</td>
+                  <td className="py-2 pl-3">
+                    <select value={it.tax_code ?? "Standard"} onChange={e => updItem(it.id, { tax_code: e.target.value })} className="w-full bg-transparent border rounded text-xs h-7 print:border-0 print:appearance-none">
+                      {TAX_CODES.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                    <div className="text-[11px] text-muted-foreground mt-0.5">{money(it.tax_amount)}</div>
+                  </td>
+                  <td className="py-2 text-right print:hidden"><button onClick={() => delItem(it.id)} className="text-muted-foreground hover:text-destructive"><Trash2 className="h-4 w-4" /></button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
 
         {/* Add item */}
         <form onSubmit={addItem} className="grid grid-cols-12 gap-2 mb-4 print:hidden">
-          <input placeholder="Description" value={newItem.description} onChange={e => setNewItem({ ...newItem, description: e.target.value })} className="col-span-6 h-9 px-2 border rounded-md bg-background text-sm" />
+          <input list="invoice-item-names" placeholder="Item (e.g. Tax Advisory: Tax Advisory and Consultancy)" value={newItem.item_name} onChange={e => setNewItem({ ...newItem, item_name: e.target.value })} className="col-span-6 h-9 px-2 border rounded-md bg-background text-sm" />
+          <input placeholder="Description (e.g. Monthly returns filing)" value={newItem.description} onChange={e => setNewItem({ ...newItem, description: e.target.value })} className="col-span-6 h-9 px-2 border rounded-md bg-background text-sm" />
+          <input type="date" title="Service date" value={newItem.service_date} onChange={e => setNewItem({ ...newItem, service_date: e.target.value })} className="col-span-3 h-9 px-2 border rounded-md bg-background text-sm" />
           <input type="number" step="0.01" placeholder="Qty" value={newItem.quantity} onChange={e => setNewItem({ ...newItem, quantity: Number(e.target.value) })} className="col-span-2 h-9 px-2 border rounded-md bg-background text-sm text-right" />
-          <input type="number" step="0.01" placeholder="Unit price" value={newItem.unit_price} onChange={e => setNewItem({ ...newItem, unit_price: Number(e.target.value) })} className="col-span-2 h-9 px-2 border rounded-md bg-background text-sm text-right" />
-          <button type="submit" className="col-span-2 h-9 rounded-md bg-primary text-primary-foreground text-sm inline-flex items-center justify-center gap-1"><Plus className="h-4 w-4" /> Add</button>
+          <input type="number" step="0.01" placeholder="Rate" value={newItem.unit_price} onChange={e => setNewItem({ ...newItem, unit_price: Number(e.target.value) })} className="col-span-2 h-9 px-2 border rounded-md bg-background text-sm text-right" />
+          <select value={newItem.tax_code} onChange={e => setNewItem({ ...newItem, tax_code: e.target.value })} className="col-span-2 h-9 px-2 border rounded-md bg-background text-sm">
+            {TAX_CODES.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+          <button type="submit" className="col-span-3 h-9 rounded-md bg-primary text-primary-foreground text-sm inline-flex items-center justify-center gap-1"><Plus className="h-4 w-4" /> Add</button>
         </form>
 
         {/* Totals */}
@@ -196,6 +238,7 @@ function InvoiceDetail() {
           </div>
         </div>
 
+        {inv.memo && <div className="mt-4 text-xs text-muted-foreground border-t pt-3"><strong>Memo:</strong> {inv.memo}</div>}
         {inv.notes && <div className="mt-4 text-xs text-muted-foreground border-t pt-3"><strong>Notes:</strong> {inv.notes}</div>}
       </div>
 
@@ -220,6 +263,16 @@ function InvoiceDetail() {
           <div>
             <label className="text-xs font-medium">Service Line</label>
             <input defaultValue={inv.service_line ?? ""} onBlur={e => e.target.value !== inv.service_line && updInv({ service_line: e.target.value })} className="w-full h-9 px-2 border rounded-md bg-background" />
+          </div>
+        </div>
+        <div className="grid md:grid-cols-2 gap-3 mt-3 text-sm">
+          <div>
+            <label className="text-xs font-medium">Location</label>
+            <input defaultValue={inv.location ?? ""} onBlur={e => e.target.value !== (inv.location ?? "") && updInv({ location: e.target.value || null })} className="w-full h-9 px-2 border rounded-md bg-background" />
+          </div>
+          <div>
+            <label className="text-xs font-medium">Memo</label>
+            <input defaultValue={inv.memo ?? ""} onBlur={e => e.target.value !== (inv.memo ?? "") && updInv({ memo: e.target.value || null })} className="w-full h-9 px-2 border rounded-md bg-background" />
           </div>
         </div>
         <div className="mt-3">
