@@ -5,6 +5,7 @@ import { Users, ClipboardCheck, Receipt, AlertTriangle, CheckCircle2, ListTodo, 
 import { formatDate, daysUntil } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
 import { useLiveRefresh } from "@/hooks/use-live-refresh";
+import { DirectorCommandCentre } from "@/components/director-command-centre";
 import {
   ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, Cell,
 } from "recharts";
@@ -92,7 +93,8 @@ function IctDeskCard() {
 }
 
 function Dashboard() {
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, roles } = useAuth();
+  const isDirector = roles.includes("director");
   const [stats, setStats] = useState({ clients: 0, pending: 0, overdue: 0, completed: 0, staff: 0 });
   const [overdueByType, setOverdueByType] = useState<{ name: string; value: number }[]>([]);
   const [tasksByStatus, setTasksByStatus] = useState<{ name: string; value: number }[]>([]);
@@ -199,6 +201,8 @@ function Dashboard() {
         <p className="text-sm text-muted-foreground mt-1">{summary}</p>
       </div>
 
+      {/* Director: navigation-first command centre replaces the generic KPI strip */}
+      {isDirector ? <DirectorCommandCentre /> : (
       <div className="grid gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
         <Kpi icon={Users} label="Clients" value={stats.clients} to="/clients" />
         <Kpi icon={Receipt} label="Pending Tax" value={stats.pending} tone="text-primary" to="/tax" />
@@ -207,6 +211,7 @@ function Dashboard() {
         <Kpi icon={ClipboardCheck} label="Staff" value={stats.staff} to="/team" />
         <Kpi icon={ListTodo} label="My Open Items" value={myOpenCount} tone="text-accent" />
       </div>
+      )}
 
       <IctDeskCard />
 
@@ -262,7 +267,7 @@ function Dashboard() {
           </div>
         </div>
 
-        {(myApprovals.length > 0 || myLeave.length > 0) && (
+        {!isDirector && (myApprovals.length > 0 || myLeave.length > 0) && (
           <div className="bg-card border rounded-lg p-4">
             <h2 className="font-semibold mb-3 inline-flex items-center gap-1.5"><UserCheck className="h-4 w-4" /> Leave approvals waiting on you</h2>
             {myApprovals.length === 0 ? <p className="text-sm text-muted-foreground">Nothing pending.</p> : (
