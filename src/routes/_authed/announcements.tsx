@@ -11,7 +11,8 @@ export const Route = createFileRoute("/_authed/announcements")({ component: Anno
 const EMPTY = { id: "", title: "", body: "" };
 
 function AnnouncePage() {
-  const { isAdmin, user } = useAuth();
+  const { canView, canCreate, canUse, user } = useAuth();
+  const canManageAnnouncements = canUse("announcements") && canCreate("announcements");
   const [rows, setRows] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(EMPTY);
@@ -66,7 +67,7 @@ function AnnouncePage() {
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <div><h1 className="text-2xl font-bold">Announcements</h1><p className="text-sm text-muted-foreground">Office-wide updates and alerts.</p></div>
-        {isAdmin && <button onClick={openNew} className="h-9 px-3 rounded-md bg-primary text-primary-foreground text-sm inline-flex items-center gap-2"><Plus className="h-4 w-4" /> New post</button>}
+        {canManageAnnouncements && <button onClick={openNew} className="h-9 px-3 rounded-md bg-primary text-primary-foreground text-sm inline-flex items-center gap-2"><Plus className="h-4 w-4" /> New post</button>}
       </div>
       <div className="space-y-3">
         {rows.length === 0 && <div className="bg-card border rounded-lg p-8 text-center text-muted-foreground text-sm">No announcements yet.</div>}
@@ -79,7 +80,7 @@ function AnnouncePage() {
                   <h2 className="font-semibold">{r.title}</h2>
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-muted-foreground">{formatDate(r.created_at)}</span>
-                    {isAdmin && (
+                    {canManageAnnouncements && (
                       <>
                         <button onClick={()=>openEdit(r)} className="p-1 hover:text-primary" title="Edit"><Pencil className="h-3.5 w-3.5" /></button>
                         <button onClick={()=>remove(r.id)} className="p-1 hover:text-destructive" title="Delete"><Trash2 className="h-3.5 w-3.5" /></button>
