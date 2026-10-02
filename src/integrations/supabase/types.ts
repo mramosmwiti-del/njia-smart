@@ -1915,6 +1915,7 @@ export type Database = {
         | "tax_assistant"
         | "audit_assistant"
         | "internal_admin"
+        | "ict_officer"
       client_status:
         | "not_started"
         | "in_progress"
@@ -2088,6 +2089,7 @@ export const Constants = {
         "tax_assistant",
         "audit_assistant",
         "internal_admin",
+        "ict_officer",
       ],
       client_status: [
         "not_started",
