@@ -7,6 +7,7 @@ const ROLES = [
   "director","admin","audit_manager","tax_consultant",
   "advisory_officer","accountant","accounts_assistant","intern",
   "marketing","tax_assistant","audit_assistant","internal_admin",
+  "ict_officer",
 ] as const;
 
 export const createStaff = createServerFn({ method: "POST" })

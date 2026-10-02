@@ -13,6 +13,11 @@
  * This file is the single source of truth — UI nav, route guards, and
  * component-level checks should all read from here instead of hardcoding
  * role checks, so access rules stay consistent everywhere.
+ *
+ * Source of truth for the table below: new_njia-smart-role-permissions.xlsx.
+ * The database mirrors this exactly in public.get_module_rank() — keep both
+ * in sync whenever this file changes (see
+ * supabase/migrations/20261002120000_update_role_module_matrix.sql).
  */
 import type { AppRole } from "@/lib/auth";
 
@@ -63,60 +68,76 @@ function levels(full: ModuleKey[] = [], view: ModuleKey[] = [], assigned: Module
 
 const EVERYONE_FULL: ModuleKey[] = ["announcements", "notifications", "chat"];
 
-const ASSISTANT_FULL: ModuleKey[] = ["hr", "tasks", "settings", ...EVERYONE_FULL];
-// Everything else for assistants/interns is "assigned": they only see what
-// has been explicitly assigned to them.
-const ASSISTANT_ASSIGNED: ModuleKey[] = ALL_MODULES.filter(
-  (m) => m !== "dashboard" && !ASSISTANT_FULL.includes(m)
-);
-
 // role -> per-module access map
 export const ROLE_ACCESS: Record<AppRole, Record<ModuleKey, AccessLevel>> = {
-  // 1. Director / Admin — full access across board (ICT included; ICT is
-  // administered automatically by this tier per policy).
+  // 1. Director / Admin — full access across board.
   director: levels(ALL_MODULES),
   admin: levels(ALL_MODULES),
 
-  // 2. Audit manager & Tax consultant
+  // 2. ICT Officer — full on ICT (projects), ICT Service Desk, documents,
+  // calendar, settings and activity; view on clients/audit/tax/advisory/the
+  // other service lines/hr; no access to team.
+  ict_officer: levels(
+    ["ict", "documents", "calendar", "settings", "activity", ...EVERYONE_FULL],
+    ["clients", "audit", "tax", "advisory", "outsourced_accounting", "payroll_management", "financial_business_management", "hr"]
+  ),
+
+  // 3. Audit manager & Tax consultant — full on audit/tax ops, view on
+  // clients, the other service lines, advisory and hr.
   audit_manager: levels(
-    ["clients", "audit", "tax", "tasks", "documents", "calendar", "hr", "settings", ...EVERYONE_FULL],
-    ["outsourced_accounting", "payroll_management", "financial_business_management", "advisory"]
+    ["audit", "tax", "documents", "calendar", "settings", ...EVERYONE_FULL],
+    ["clients", "outsourced_accounting", "payroll_management", "financial_business_management", "advisory", "hr"]
   ),
   tax_consultant: levels(
-    ["clients", "audit", "tax", "tasks", "documents", "calendar", "hr", "settings", ...EVERYONE_FULL],
-    ["outsourced_accounting", "payroll_management", "financial_business_management", "advisory"]
+    ["audit", "tax", "documents", "calendar", "settings", ...EVERYONE_FULL],
+    ["clients", "outsourced_accounting", "payroll_management", "financial_business_management", "advisory", "hr"]
   ),
 
-  // 3. Advisory — view core modules, full on advisory-line-of-business modules
+  // 4. Advisory — full only on advisory itself (+documents/calendar/
+  // settings); view on clients/audit/tax/the other three service lines/hr.
   advisory_officer: levels(
-    ["advisory", "outsourced_accounting", "payroll_management", "financial_business_management", ...EVERYONE_FULL],
-    ["clients", "audit", "tax", "tasks", "documents", "calendar", "hr", "settings"]
+    ["advisory", "documents", "calendar", "settings", ...EVERYONE_FULL],
+    ["clients", "audit", "tax", "outsourced_accounting", "payroll_management", "financial_business_management", "hr"]
   ),
 
-  // 4. Accountant — full across board except ICT (view only). Also the
-  // primary leave approver (see LEAVE_APPROVAL below).
+  // 5. Accountant — full on the three service lines it runs plus documents/
+  // calendar/settings; view on clients/audit/tax/advisory/hr; no ICT access.
   accountant: levels(
-    ALL_MODULES.filter((m) => m !== "ict"),
-    ["ict"]
+    ["outsourced_accounting", "payroll_management", "financial_business_management", "documents", "calendar", "settings", ...EVERYONE_FULL],
+    ["clients", "audit", "tax", "advisory", "hr"]
   ),
 
-  // 5. Assistants & interns — assigned-only, plus full on the modules they
-  // primarily operate in (HR, Tasks, Settings) and announcements.
-  accounts_assistant: levels(ASSISTANT_FULL, [], ASSISTANT_ASSIGNED),
-  tax_assistant: levels(ASSISTANT_FULL, [], ASSISTANT_ASSIGNED),
-  audit_assistant: levels(ASSISTANT_FULL, [], ASSISTANT_ASSIGNED),
-  intern: levels(ASSISTANT_FULL, [], ASSISTANT_ASSIGNED),
+  // 6. Assistants & interns — full on calendar/settings (+announcements);
+  // view on clients/audit/tax/documents/hr; nothing on the service lines,
+  // advisory or ICT.
+  accounts_assistant: levels(
+    ["calendar", "settings", ...EVERYONE_FULL],
+    ["clients", "audit", "tax", "documents", "hr"]
+  ),
+  tax_assistant: levels(
+    ["calendar", "settings", ...EVERYONE_FULL],
+    ["clients", "audit", "tax", "documents", "hr"]
+  ),
+  audit_assistant: levels(
+    ["calendar", "settings", ...EVERYONE_FULL],
+    ["clients", "audit", "tax", "documents", "hr"]
+  ),
+  intern: levels(
+    ["calendar", "settings", ...EVERYONE_FULL],
+    ["clients", "audit", "tax", "documents", "hr"]
+  ),
 
-  // 7. Marketing — view only, narrow set of modules.
+  // 7. Marketing — full on calendar/settings; view on clients/documents/
+  // advisory/hr.
   marketing: levels(
-    [...EVERYONE_FULL],
-    ["clients", "documents", "tasks", "calendar", "settings", "advisory"]
+    ["calendar", "settings", ...EVERYONE_FULL],
+    ["clients", "documents", "advisory", "hr"]
   ),
 
-  // 8. Internal admin — view only, narrower still.
+  // 8. Internal admin — full on calendar/settings; view on hr only.
   internal_admin: levels(
-    [...EVERYONE_FULL],
-    ["tasks", "calendar", "settings"]
+    ["calendar", "settings", ...EVERYONE_FULL],
+    ["hr"]
   ),
 };
 
@@ -134,31 +155,36 @@ for (const role of Object.keys(ROLE_ACCESS) as AppRole[]) {
   ROLE_ACCESS[role].tasks = role === "director" || role === "admin" ? "full" : "assigned";
 }
 
-// ICT Service Desk is a separate module from ICT (projects) and is open to
-// everyone: every role can see the module and raise/see their own tickets
-// ("assigned" — same "own records only" semantics tasks already use). Full
-// oversight — every ticket, plus asset detail — is reserved for the Admin
-// role ONLY. The Director gets no special access here (raises and sees their
-// own tickets like any other staff member).
+// ICT Service Desk is a separate module from ICT (projects): Director, Admin
+// and ICT Officer get full oversight (every ticket, asset detail, delete).
+// Everyone else only raises/sees their own tickets ("assigned" — same "own
+// records only" semantics Tasks already uses).
 for (const role of Object.keys(ROLE_ACCESS) as AppRole[]) {
-  ROLE_ACCESS[role].ict_service_desk = role === "admin" ? "full" : "assigned";
+  ROLE_ACCESS[role].ict_service_desk =
+    role === "admin" || role === "director" || role === "ict_officer" ? "full" : "assigned";
 }
 
 // Accounts (financial records): Director and Admin have full rights and see
-// the whole book (balances, total collected, every invoice). Every other role
-// is "assigned": they only see the invoices raised on clients assigned to
-// them, can record/update payments on those, and never see firm-wide totals.
-// Enforced in the database by get_module_rank + the invoices/payments policies
-// (migration 20261002090000_accounts_own_invoices_only.sql).
+// the whole book (balances, total collected, every invoice). Internal Admin
+// has no access to this module at all. Every other role is "assigned": they
+// only see the invoices raised on clients assigned to them, can record/
+// update payments on those, and never see firm-wide totals.
+// Enforced in the database by get_module_rank + the invoices/payments
+// policies (migration 20261002090000_accounts_own_invoices_only.sql).
 for (const role of Object.keys(ROLE_ACCESS) as AppRole[]) {
-  ROLE_ACCESS[role].accounts = role === "director" || role === "admin" ? "full" : "assigned";
+  ROLE_ACCESS[role].accounts =
+    role === "director" || role === "admin" ? "full" : role === "internal_admin" ? "none" : "assigned";
 }
 
-// Activity & Team (staff management and the audit trail) is Admin only. The
-// Director no longer gets these by virtue of "full access across the board".
+// Team (staff management) — Director and Admin only.
 for (const role of Object.keys(ROLE_ACCESS) as AppRole[]) {
-  ROLE_ACCESS[role].team = role === "admin" ? "full" : "none";
-  ROLE_ACCESS[role].activity = role === "admin" ? "full" : "none";
+  ROLE_ACCESS[role].team = role === "admin" || role === "director" ? "full" : "none";
+}
+
+// Activity (the audit trail) — Admin and ICT Officer only. Director is
+// explicitly excluded here, unlike every other module.
+for (const role of Object.keys(ROLE_ACCESS) as AppRole[]) {
+  ROLE_ACCESS[role].activity = role === "admin" || role === "ict_officer" ? "full" : "none";
 }
 
 /** Highest access level a user has on a module, across all their roles. */
@@ -217,9 +243,10 @@ export function canDelete(
 /**
  * HR managers can add/edit employee personal details, attach payslips and
  * other employee documents. Mirrors public.is_hr_manager() in the database —
- * keep the two in sync.
+ * keep the two in sync. Accountant moved to HR "view-only" in the updated
+ * matrix, so it's no longer an HR manager.
  */
-export const HR_MANAGER_ROLES: AppRole[] = ["director", "admin", "accountant"];
+export const HR_MANAGER_ROLES: AppRole[] = ["director", "admin"];
 
 export function isHrManager(roles: AppRole[]): boolean {
   return roles.some((r) => HR_MANAGER_ROLES.includes(r));

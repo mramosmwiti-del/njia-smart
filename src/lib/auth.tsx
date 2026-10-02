@@ -17,7 +17,8 @@ import {
 export type AppRole =
   | "director" | "admin" | "audit_manager" | "tax_consultant"
   | "advisory_officer" | "accountant" | "accounts_assistant" | "intern"
-  | "marketing" | "tax_assistant" | "audit_assistant" | "internal_admin";
+  | "marketing" | "tax_assistant" | "audit_assistant" | "internal_admin"
+  | "ict_officer";
 
 interface AuthState {
   user: User | null;
@@ -116,4 +117,5 @@ export const ROLE_LABELS: Record<AppRole, string> = {
   tax_assistant: "Tax Assistant",
   audit_assistant: "Audit Assistant",
   internal_admin: "Internal Admin",
+  ict_officer: "ICT Officer",
 };
