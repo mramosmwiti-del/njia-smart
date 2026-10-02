@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, X, Trash2, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, X, Trash2, Plus, ChevronDown, ChevronUp } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useLiveRefresh } from "@/hooks/use-live-refresh";
 
@@ -26,6 +26,8 @@ function CalendarPage() {
   const [clients, setClients] = useState<any[]>([]);
   const [staff, setStaff] = useState<any[]>([]);
   const [dialog, setDialog] = useState<{ mode: "new" | "edit"; data: any } | null>(null);
+  const [selectedTypes, setSelectedTypes] = useState<string[]>(EVENT_TYPES.map(t => t.v));
+  const [expandedDate, setExpandedDate] = useState<string | null>(null);
 
   async function load() {
     const [e, t, c, p] = await Promise.all([
@@ -69,7 +71,7 @@ function CalendarPage() {
     const tax = taxRows.filter(t => t.due_date === dStr).map(t => ({
       kind: "tax" as const, id: t.id, title: `${t.return_type.toUpperCase()} · ${t.clients?.company_name ?? ""}`, type: "deadline",
     }));
-    return [...customs, ...tax];
+    return [...customs, ...tax].filter(e => selectedTypes.includes(e.type));
   }
 
   function openNew(d: Date) {
@@ -129,10 +131,26 @@ function CalendarPage() {
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2 text-xs">
-        {EVENT_TYPES.map(t => (
-          <span key={t.v} className={`px-2 py-0.5 rounded ${t.cls}`}>{t.label}</span>
-        ))}
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span className="font-medium text-muted-foreground mr-1">Show:</span>
+        {EVENT_TYPES.map(t => {
+          const active = selectedTypes.includes(t.v);
+          return (
+            <button
+              key={t.v}
+              onClick={() => setSelectedTypes(prev => active ? prev.filter(v => v !== t.v) : [...prev, t.v])}
+              className={`px-2.5 py-1 rounded-md border transition-opacity ${t.cls} ${active ? "opacity-100" : "opacity-40 line-through"}`}
+            >
+              {t.label}
+            </button>
+          );
+        })}
+        <button
+          onClick={() => setSelectedTypes(selectedTypes.length === EVENT_TYPES.length ? [] : EVENT_TYPES.map(t => t.v))}
+          className="px-2.5 py-1 rounded-md border bg-card hover:bg-muted"
+        >
+          {selectedTypes.length === EVENT_TYPES.length ? "Clear all" : "Show all"}
+        </button>
       </div>
 
       <div className="bg-card border rounded-lg overflow-hidden">
@@ -144,22 +162,59 @@ function CalendarPage() {
             const isCurr = d.getMonth() === month;
             const today = d.toDateString() === new Date().toDateString();
             const evs = eventsOn(d);
+            const dateKey = d.toISOString().slice(0, 10);
+            const isExpanded = expandedDate === dateKey;
             return (
-              <div key={i} onClick={() => openNew(d)} className={`min-h-24 p-1.5 border-r border-b text-xs cursor-pointer hover:bg-muted/40 ${!isCurr ? "bg-muted/30 text-muted-foreground" : ""}`}>
-                <div className={`text-right font-medium ${today ? "text-accent" : ""}`}>{d.getDate()}</div>
-                <div className="space-y-0.5 mt-1">
-                  {evs.slice(0, 3).map((e, idx) => (
-                    <div
-                      key={idx}
-                      onClick={ev => { ev.stopPropagation(); if (e.kind === "custom") openEdit(e.raw); }}
-                      className={`px-1.5 py-0.5 rounded text-[10px] truncate ${typeCls(e.type)}`}
-                      title={e.kind === "custom" && e.sharedWithYou ? (e.isTeam ? `${e.title} · team event` : `${e.title} · assigned to you`) : e.title}
-                    >
-                      {e.kind === "custom" && e.sharedWithYou ? (e.isTeam ? "👥 " : "👤 ") : ""}{e.title}
+              <div key={i} className={`border-r border-b text-xs ${!isCurr ? "bg-muted/30 text-muted-foreground" : ""}`}>
+                <div
+                  onClick={() => setExpandedDate(isExpanded ? null : dateKey)}
+                  className="min-h-24 p-1.5 cursor-pointer hover:bg-muted/40"
+                  title="Click to expand this date"
+                >
+                  <div className="flex items-center justify-between gap-1">
+                    <span className={`font-medium ${today ? "text-accent" : ""}`}>{d.getDate()}</span>
+                    <div className="flex items-center gap-1">
+                      {evs.length > 0 && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-muted">{evs.length}</span>}
+                      {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                     </div>
-                  ))}
-                  {evs.length > 3 && <div className="text-[10px] text-muted-foreground">+{evs.length - 3} more</div>}
+                  </div>
+                  <div className="space-y-0.5 mt-1">
+                    {evs.slice(0, 3).map((e, idx) => (
+                      <div
+                        key={idx}
+                        onClick={ev => { ev.stopPropagation(); if (e.kind === "custom") openEdit(e.raw); }}
+                        className={`px-1.5 py-0.5 rounded text-[10px] truncate ${typeCls(e.type)}`}
+                        title={e.kind === "custom" && e.sharedWithYou ? (e.isTeam ? `${e.title} · team event` : `${e.title} · assigned to you`) : e.title}
+                      >
+                        {e.kind === "custom" && e.sharedWithYou ? (e.isTeam ? "👥 " : "👤 ") : ""}{e.title}
+                      </div>
+                    ))}
+                    {evs.length > 3 && <div className="text-[10px] text-muted-foreground">+{evs.length - 3} more · click to expand</div>}
+                    {evs.length === 0 && <div className="text-[10px] text-muted-foreground mt-2">No items</div>}
+                  </div>
                 </div>
+                {isExpanded && (
+                  <div className="border-t bg-muted/20 p-2 space-y-1.5">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-semibold">{d.toLocaleDateString("en", { weekday: "short", month: "short", day: "numeric" })}</span>
+                      <button onClick={() => openNew(d)} className="inline-flex items-center gap-1 px-2 py-1 rounded border bg-card hover:bg-muted text-[10px]"><Plus className="h-3 w-3" /> Add</button>
+                    </div>
+                    {evs.length === 0 ? (
+                      <div className="text-[10px] text-muted-foreground py-1">Nothing booked or highlighted for this date.</div>
+                    ) : evs.map((e, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => { if (e.kind === "custom") openEdit(e.raw); }}
+                        className={`w-full text-left p-2 rounded border ${typeCls(e.type)} hover:opacity-80`}
+                      >
+                        <div className="font-medium truncate">{e.kind === "custom" && e.sharedWithYou ? (e.isTeam ? "👥 " : "👤 ") : ""}{e.title}</div>
+                        <div className="text-[10px] opacity-80 mt-0.5">
+                          {e.kind === "custom" ? [e.raw.event_time, e.raw.client_id ? "Client-linked" : null, e.raw.visibility === "team" ? "Team" : null].filter(Boolean).join(" · ") || e.type : "Tax deadline"}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             );
           })}
