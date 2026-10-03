@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -8,12 +8,19 @@ import { useAuth } from "@/lib/auth";
 import { LastUpdated } from "@/components/last-updated";
 import { useLiveRefresh } from "@/hooks/use-live-refresh";
 
-export const Route = createFileRoute("/_authed/tasks")({ component: TasksPage });
+export const Route = createFileRoute("/_authed/tasks")({
+  component: TasksPage,
+  validateSearch: (s: Record<string, unknown>) => ({
+    status: typeof s.status === "string" ? s.status : undefined,
+  }),
+});
 
 const EMPTY = { id: "", title:"", description:"", client_id:"", assigned_to:"", priority:"normal", due_date:"", status:"todo" };
 
 function TasksPage() {
   const { user, isAdmin, canCreate, canDelete } = useAuth();
+  const { status: statusFilter } = Route.useSearch();
+  const navigate = useNavigate({ from: Route.fullPath });
   const [rows, setRows] = useState<any[]>([]);
   const [clients, setClients] = useState<any[]>([]);
   const [staff, setStaff] = useState<any[]>([]);
@@ -82,12 +89,24 @@ function TasksPage() {
     if (error) toast.error(error.message); else load();
   }
 
-  const visible = rows.filter(r => r.assigned_to === user?.id || r.created_by === user?.id);
+  const mine = rows.filter(r => r.assigned_to === user?.id || r.created_by === user?.id);
+  const visible = statusFilter ? mine.filter(r => r.status === statusFilter) : mine;
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap justify-between items-center gap-3">
-        <div><h1 className="text-2xl font-bold">Tasks</h1><p className="text-sm text-muted-foreground">Assign, transfer and collaborate on work.</p></div>
+        <div>
+          <h1 className="text-2xl font-bold">Tasks</h1>
+          <p className="text-sm text-muted-foreground">
+            Assign, transfer and collaborate on work.
+            {statusFilter && (
+              <>
+                {" "}· filtered to <span className="font-medium capitalize text-foreground">{statusFilter.replace(/_/g, " ")}</span>{" "}
+                <button onClick={() => navigate({ search: { status: undefined } })} className="text-primary hover:underline">clear</button>
+              </>
+            )}
+          </p>
+        </div>
         {canCreate("tasks") && (
           <button onClick={openNew} className="h-9 px-3 rounded-md bg-primary text-primary-foreground text-sm inline-flex items-center gap-2"><Plus className="h-4 w-4" /> New task</button>
         )}

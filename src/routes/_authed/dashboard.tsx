@@ -91,8 +91,8 @@ function Dashboard() {
   const { user, isAdmin, roles } = useAuth();
   const isDirector = roles.includes("director");
   const [stats, setStats] = useState({ clients: 0, pending: 0, overdue: 0, completed: 0, staff: 0 });
-  const [overdueByType, setOverdueByType] = useState<{ name: string; value: number }[]>([]);
-  const [tasksByStatus, setTasksByStatus] = useState<{ name: string; value: number }[]>([]);
+  const [overdueByType, setOverdueByType] = useState<{ type: string; name: string; value: number }[]>([]);
+  const [tasksByStatus, setTasksByStatus] = useState<{ status: string; name: string; value: number }[]>([]);
   const [workload, setWorkload] = useState<{ name: string; tasks: number; filings: number; overdue: number }[]>([]);
 
   const [myTasks, setMyTasks] = useState<any[]>([]);
@@ -128,12 +128,12 @@ function Dashboard() {
           overdueCounts[r.return_type] = (overdueCounts[r.return_type] ?? 0) + 1;
         }
       });
-      setOverdueByType(Object.entries(overdueCounts).map(([name, value]) => ({ name: name.replace(/_/g, " "), value })));
+      setOverdueByType(Object.entries(overdueCounts).map(([type, value]) => ({ type, name: type.replace(/_/g, " "), value })));
 
       // Open tasks by status.
       const statusCounts: Record<string, number> = {};
       (allTasks.data ?? []).forEach((t: any) => { statusCounts[t.status] = (statusCounts[t.status] ?? 0) + 1; });
-      setTasksByStatus(Object.entries(statusCounts).map(([name, value]) => ({ name: name.replace(/_/g, " "), value })));
+      setTasksByStatus(Object.entries(statusCounts).map(([status, value]) => ({ status, name: status.replace(/_/g, " "), value })));
 
       // Per-staff workload — who's carrying what, at a glance (admin only).
       const staffMap = new Map((staff.data ?? []).map((s: any) => [s.id, s.full_name]));
@@ -216,7 +216,7 @@ function Dashboard() {
         <div className="bg-card border rounded-lg p-4">
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-semibold inline-flex items-center gap-1.5"><ListTodo className="h-4 w-4" /> My tasks</h2>
-            <Link to="/tasks" className="text-xs text-primary hover:underline">View all →</Link>
+            <Link to="/tasks" search={{ status: undefined }} className="text-xs text-primary hover:underline">View all →</Link>
           </div>
           {myTasks.length === 0 && <p className="text-sm text-muted-foreground">Nothing assigned to you right now.</p>}
           <div className="space-y-1">
@@ -316,14 +316,17 @@ function Dashboard() {
             <table className="w-full text-sm">
               <tbody>
                 {[...overdueByType].sort((a, b) => b.value - a.value).map((r) => (
-                  <tr key={r.name} className="border-b last:border-0">
-                    <td className="py-1.5 capitalize">{r.name}</td>
-                    <td className="py-1.5 text-right">
-                      <span className={`inline-flex min-w-[1.75rem] justify-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                        r.value >= 5 ? "bg-destructive/10 text-destructive" : "bg-amber-500/10 text-amber-600 dark:text-amber-400"
-                      }`}>
-                        {r.value}
-                      </span>
+                  <tr key={r.type} className="border-b last:border-0">
+                    <td className="py-0">
+                      <Link to="/tax/$type" params={{ type: r.type }} search={{ client: undefined }}
+                        className="flex items-center justify-between py-1.5 -mx-1 px-1 rounded hover:bg-muted/60 hover:text-primary">
+                        <span className="capitalize">{r.name}</span>
+                        <span className={`inline-flex min-w-[1.75rem] justify-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                          r.value >= 5 ? "bg-destructive/10 text-destructive" : "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                        }`}>
+                          {r.value}
+                        </span>
+                      </Link>
                     </td>
                   </tr>
                 ))}
@@ -349,12 +352,17 @@ function Dashboard() {
               <table className="w-full text-sm">
                 <tbody>
                   {[...tasksByStatus].sort((a, b) => b.value - a.value).map((r) => (
-                    <tr key={r.name} className="border-b last:border-0">
-                      <td className="py-1.5 capitalize">{r.name}</td>
-                      <td className="py-1.5 text-right text-muted-foreground text-xs">
-                        {Math.round((r.value / total) * 100)}%
+                    <tr key={r.status} className="border-b last:border-0">
+                      <td className="py-0" colSpan={3}>
+                        <Link to="/tasks" search={{ status: r.status }}
+                          className="flex items-center justify-between py-1.5 -mx-1 px-1 rounded hover:bg-muted/60 hover:text-primary">
+                          <span className="capitalize">{r.name}</span>
+                          <span className="flex items-center gap-3">
+                            <span className="text-muted-foreground text-xs">{Math.round((r.value / total) * 100)}%</span>
+                            <span className="font-medium w-6 text-right">{r.value}</span>
+                          </span>
+                        </Link>
                       </td>
-                      <td className="py-1.5 pl-3 text-right font-medium w-10">{r.value}</td>
                     </tr>
                   ))}
                 </tbody>
