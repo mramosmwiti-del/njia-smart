@@ -6,13 +6,8 @@ import { formatDate, daysUntil } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
 import { useLiveRefresh } from "@/hooks/use-live-refresh";
 import { DirectorCommandCentre } from "@/components/director-command-centre";
-import {
-  ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, Cell,
-} from "recharts";
 
 export const Route = createFileRoute("/_authed/dashboard")({ component: Dashboard });
-
-const COLORS = ["#363D97", "#F14B24", "#10b981", "#f59e0b", "#8b5cf6", "#ef4444", "#06b6d4", "#64748b"];
 
 function Kpi({ icon: Icon, label, value, sub, tone, to }: any) {
   const content = (
@@ -302,45 +297,70 @@ function Dashboard() {
         )}
       </div>
 
-      {/* Firm-wide reports */}
+      {/* Firm-wide reports — plain ranked summaries, not charts. Director
+          has their own command centre above and doesn't need this view. */}
       {!isDirector && (
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="bg-card border rounded-lg p-4">
-          <h2 className="font-semibold mb-3">Overdue filings by type</h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-semibold">Overdue filings by type</h2>
+            {overdueByType.length > 0 && (
+              <span className="text-xs text-muted-foreground">
+                {overdueByType.reduce((sum, r) => sum + r.value, 0)} total
+              </span>
+            )}
+          </div>
           {overdueByType.length === 0 ? (
             <p className="text-sm text-muted-foreground">Nothing overdue — nice work.</p>
           ) : (
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={overdueByType} layout="vertical" margin={{ left: 16 }}>
-                <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                <XAxis type="number" allowDecimals={false} fontSize={11} />
-                <YAxis type="category" dataKey="name" width={90} fontSize={11} className="capitalize" />
-                <Tooltip />
-                <Bar dataKey="value" radius={[0, 4, 4, 0]}>
-                  {overdueByType.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+            <table className="w-full text-sm">
+              <tbody>
+                {[...overdueByType].sort((a, b) => b.value - a.value).map((r) => (
+                  <tr key={r.name} className="border-b last:border-0">
+                    <td className="py-1.5 capitalize">{r.name}</td>
+                    <td className="py-1.5 text-right">
+                      <span className={`inline-flex min-w-[1.75rem] justify-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                        r.value >= 5 ? "bg-destructive/10 text-destructive" : "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                      }`}>
+                        {r.value}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
         </div>
 
         <div className="bg-card border rounded-lg p-4">
-          <h2 className="font-semibold mb-3">Open tasks by status</h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-semibold">Open tasks by status</h2>
+            {tasksByStatus.length > 0 && (
+              <span className="text-xs text-muted-foreground">
+                {tasksByStatus.reduce((sum, r) => sum + r.value, 0)} total
+              </span>
+            )}
+          </div>
           {tasksByStatus.length === 0 ? (
             <p className="text-sm text-muted-foreground">No tasks yet.</p>
-          ) : (
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={tasksByStatus}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="name" fontSize={11} className="capitalize" />
-                <YAxis allowDecimals={false} fontSize={11} />
-                <Tooltip />
-                <Bar dataKey="value" radius={[4, 4, 0, 0]}>
-                  {tasksByStatus.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          )}
+          ) : (() => {
+            const total = tasksByStatus.reduce((sum, r) => sum + r.value, 0) || 1;
+            return (
+              <table className="w-full text-sm">
+                <tbody>
+                  {[...tasksByStatus].sort((a, b) => b.value - a.value).map((r) => (
+                    <tr key={r.name} className="border-b last:border-0">
+                      <td className="py-1.5 capitalize">{r.name}</td>
+                      <td className="py-1.5 text-right text-muted-foreground text-xs">
+                        {Math.round((r.value / total) * 100)}%
+                      </td>
+                      <td className="py-1.5 pl-3 text-right font-medium w-10">{r.value}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            );
+          })()}
         </div>
       </div>
       )}
