@@ -8,6 +8,7 @@ import { useAuth } from "@/lib/auth";
 import { ClientAssignments } from "@/components/client-assignments";
 import { CompletionInvoiceDialog, LinkedInvoice } from "@/components/completion-invoice-dialog";
 import { getAuditWorkspaceSections } from "@/lib/audit/registry";
+import { AuditPlanningWorkbench } from "@/components/audit/audit-planning-workbench";
 
 export const Route = createFileRoute("/_authed/audit/$id")({ component: AuditDetail });
 
@@ -196,6 +197,8 @@ function AuditDetail() {
       </div>
 
       {e.client_id && <ClientAssignments clientId={e.client_id} />}
+
+      <AuditPlanningWorkbench engagementId={id} workpapers={wp.map((workpaper) => ({ id: workpaper.id, title: workpaper.title }))} />
 
       <div className="bg-card border rounded-lg p-4">
         <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
