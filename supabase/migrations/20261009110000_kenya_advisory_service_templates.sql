@@ -163,7 +163,7 @@ FROM public.advisory_service_templates t CROSS JOIN (VALUES
  ('fees_submission','filing','Confirm current official fee and submission channel','Confirm the current fee and portal/channel at time of filing; do not rely on historic amounts.','Payment proof and submission receipt',true,false,'Current BRS fee schedule / portal', 'https://brs.go.ke/',50),
  ('registry_query','follow_up','Track registry queries and corrections','Record any query, response deadline, correction and resubmission.','Query notice and response copy if issued',false,false,'Case-specific registry correspondence','https://brs.go.ke/',60),
  ('final_output','closeout','Verify and deliver final registry output','Confirm names, identifiers and filed particulars against the client instruction before handover.','Issued certificate, extract or filing confirmation',true,false,'Output issued by BRS', 'https://brs.go.ke/',70)
-) AS v(control_key,category,title,guidance,evidence_hint,mandatory,applicability_check,legal_reference,source_url,sort_order) ON true
+) AS v(control_key,category,title,guidance,evidence_hint,mandatory,applicability_check,legal_reference,source_url,sort_order)
 WHERE t.service_type='brs' AND t.version=1 ON CONFLICT(template_id,control_key) DO NOTHING;
 
 -- CBK digital credit providers: only use after confirming the client's activity falls within DCP scope.
@@ -178,7 +178,7 @@ FROM public.advisory_service_templates t CROSS JOIN (VALUES
  ('aml_cft','governance','Screen AML/CFT obligations for applicability','Confirm the obligations that apply to this business and document any specialist escalation required.','Applicability assessment and relevant controls',true,true,'Applicable Kenyan AML/CFT laws and CBK requirements','https://www.centralbank.go.ke/',60),
  ('application_submission','filing','Prepare and submit the current CBK application pack','Use the latest CBK checklist, record the submission reference and keep the exact submitted version.','Application pack and acknowledgement',true,false,'Current CBK application requirements','https://www.centralbank.go.ke/',70),
  ('annual_obligations','post_approval','Record annual fees, returns and post-licensing obligations','If licensed, confirm the current annual fee, return deadline and conditions directly against current CBK directions.','Licence conditions and compliance calendar',false,false,'DCP Regulations, 2022; confirm current requirements','https://www.centralbank.go.ke/wp-content/uploads/2022/03/L-.N.-No.-46-Central-Bank-of-Kenya-Digital-Credit-Providers-Regulations-2022.pdf',80)
-) AS v(control_key,category,title,guidance,evidence_hint,mandatory,applicability_check,legal_reference,source_url,sort_order) ON true
+) AS v(control_key,category,title,guidance,evidence_hint,mandatory,applicability_check,legal_reference,source_url,sort_order)
 WHERE t.service_type='cbk' AND t.version=1 ON CONFLICT(template_id,control_key) DO NOTHING;
 
 -- PBORA: regulations were gazetted in March 2026; validate current requirements and route for each applicant.
@@ -194,7 +194,7 @@ FROM public.advisory_service_templates t CROSS JOIN (VALUES
  ('clearance_documents','documents','Check current clearance and photo requirements','Confirm which officials require police clearance, photographs, passport or other supporting material for this application.','Clearance/photo/ID checklist marked applicable or not applicable',true,true,'Current PBORA application checklist','https://pbora.go.ke/register-pbo',70),
  ('portal_fees','filing','Submit through the current PBORA channel and confirm fees','Verify the live prescribed fee and online process before advising or collecting any amount.','Submission acknowledgement and payment proof',true,false,'Current PBORA fee schedule and portal','https://pbora.go.ke/register-pbo',80),
  ('post_registration','post_registration','Assess post-registration and recurring obligations','Provide a separate follow-up list for reporting, material changes, renewals or other duties applicable to this organisation.','Post-registration obligations memo and dates',false,true,'PBO Act and PBO Regulations, 2026','https://www.pbora.go.ke/downloads',90)
-) AS v(control_key,category,title,guidance,evidence_hint,mandatory,applicability_check,legal_reference,source_url,sort_order) ON true
+) AS v(control_key,category,title,guidance,evidence_hint,mandatory,applicability_check,legal_reference,source_url,sort_order)
 WHERE t.service_type='pbora' AND t.version=1 ON CONFLICT(template_id,control_key) DO NOTHING;
 
 -- Generic company advisory: intentionally prompts the case handler to select the correct transaction and law.
@@ -206,7 +206,7 @@ FROM public.advisory_service_templates t CROSS JOIN (VALUES
  ('regulatory_gate','compliance','Check additional licences, permits and regulator approvals','Determine whether county permits, tax, data protection, sector regulator or other approvals apply; do not assume all apply.','Applicability matrix and source links',true,true,'Confirm with relevant Kenyan authority', 'https://brs.go.ke/',30),
  ('advice_review','review','Document advice, assumptions and client approval','Record assumptions, limitations, decision points and any specialist review required before advice is issued.','Advice memo and approval record',true,false,'Engagement terms and professional procedures',NULL,40),
  ('handover','closeout','Complete client handover and follow-up plan','Provide final documents, next steps, owners and dates where applicable.','Handover note and client acknowledgement',true,false,'Case-specific deliverables',NULL,50)
-) AS v(control_key,category,title,guidance,evidence_hint,mandatory,applicability_check,legal_reference,source_url,sort_order) ON true
+) AS v(control_key,category,title,guidance,evidence_hint,mandatory,applicability_check,legal_reference,source_url,sort_order)
 WHERE t.service_type='company' AND t.version=1 ON CONFLICT(template_id,control_key) DO NOTHING;
 
 -- Financial advisory template avoids asserting CMA/CBK authorisation until activity scope is assessed.
@@ -218,7 +218,7 @@ FROM public.advisory_service_templates t CROSS JOIN (VALUES
  ('data_inputs','documents','Validate financial data and assumptions','Record sources, periods, reconciliations, assumptions and client confirmation of inputs.','Financial statements, management accounts and assumptions',true,false,'Engagement-specific analysis requirements',NULL,30),
  ('methodology_review','review','Document methodology, limitations and independent review','Record model methodology, scenarios, limitations and reviewer sign-off appropriate to the engagement.','Model/analysis, version and review notes',true,false,'Engagement terms and professional procedures',NULL,40),
  ('advice_handover','closeout','Issue advice and document agreed next steps','Confirm final deliverables, client decisions, action owners and any regulator approval dependencies.','Final report / presentation and action plan',true,false,'Case-specific deliverables',NULL,50)
-) AS v(control_key,category,title,guidance,evidence_hint,mandatory,applicability_check,legal_reference,source_url,sort_order) ON true
+) AS v(control_key,category,title,guidance,evidence_hint,mandatory,applicability_check,legal_reference,source_url,sort_order)
 WHERE t.service_type='financial' AND t.version=1 ON CONFLICT(template_id,control_key) DO NOTHING;
 
 COMMENT ON TABLE public.advisory_service_templates IS 'Versioned Kenyan Advisory service templates; all regulatory requirements must be verified against current official guidance.';
