@@ -1,9 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
-import { Ticket, HardDrive, Wrench, AlertTriangle, Plus, X, Pencil, Trash2 } from "lucide-react";
+import {
+  Ticket, HardDrive, Wrench, AlertTriangle, Plus, X, Pencil, Trash2,
+  ChevronRight, ChevronDown, ListChecks, ShieldCheck, CheckCircle2,
+} from "lucide-react";
 
 export const Route = createFileRoute("/_authed/ict-service-desk")({
   head: () => ({
@@ -18,7 +21,7 @@ export const Route = createFileRoute("/_authed/ict-service-desk")({
 const CATEGORIES = ["Hardware", "Software", "Network", "Access/Account", "Other"];
 const PRIORITIES = ["Low", "Medium", "High", "Critical"];
 const STATUSES = ["New", "In Progress", "On Hold", "Resolved", "Closed"];
-const EMPTY_FORM = { title: "", description: "", category: CATEGORIES[0], priority: "Medium", assigned_to: "" };
+const EMPTY_FORM = { title: "", description: "", category: CATEGORIES[0], priority: "Medium", assigned_to: "", service_type: "general" };
 const EMPTY_ASSET_FORM = { id: "", name: "", description: "", quantity: "1", unit_cost: "", purchase_date: "", assigned_to: "" };
 
 const PRIORITY_COLORS: Record<string, string> = {
@@ -47,7 +50,68 @@ type Ticket = {
   reported_by: string;
   assigned_to: string | null;
   created_at: string;
+  service_type?: string | null;
 };
+
+// Service templates + per-ticket checklist (see 20261009120000_ict_service_templates.sql).
+// The database enforces every rule below; this page only reflects it.
+type ServiceTemplate = { service_type: string; title: string; description: string | null; sort_order: number };
+type StepStatus = "not_started" | "in_progress" | "blocked" | "done" | "verified" | "not_applicable";
+type Control = {
+  id: string;
+  ticket_id: string;
+  template_control_id: string | null;
+  control_key: string;
+  category: string;
+  title: string;
+  guidance: string | null;
+  evidence_hint: string | null;
+  mandatory: boolean;
+  requires_evidence: boolean;
+  requires_verification: boolean;
+  sort_order: number;
+  status: StepStatus;
+  evidence_note: string | null;
+  assigned_to: string | null;
+  due_date: string | null;
+  completed_by: string | null;
+  completed_at: string | null;
+  verified_by: string | null;
+  verified_at: string | null;
+  created_at: string;
+};
+
+const STEP_LABEL: Record<StepStatus, string> = {
+  not_started: "Not started", in_progress: "In progress", blocked: "Blocked",
+  done: "Done", verified: "Verified", not_applicable: "Not applicable",
+};
+const STEP_COLORS: Record<StepStatus, string> = {
+  not_started: "bg-muted text-muted-foreground",
+  in_progress: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200",
+  blocked: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200",
+  done: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200",
+  verified: "bg-emerald-200 text-emerald-900 dark:bg-emerald-800/50 dark:text-emerald-100",
+  not_applicable: "bg-muted text-muted-foreground",
+};
+
+// A step counts as finished when it is verified, not applicable, or done and
+// does not need a second person to verify it.
+const isStepComplete = (c: Control) =>
+  c.status === "verified" || c.status === "not_applicable" || (c.status === "done" && !c.requires_verification);
+
+function progressOf(cs: Control[]) {
+  const today = new Date().toISOString().slice(0, 10);
+  return {
+    total: cs.length,
+    complete: cs.filter(isStepComplete).length,
+    awaiting: cs.filter((c) => c.status === "done" && c.requires_verification).length,
+    blocked: cs.filter((c) => c.status === "blocked").length,
+    overdue: cs.filter((c) => c.due_date && c.due_date < today && !isStepComplete(c)).length,
+    mandatoryOpen: cs.filter((c) => c.mandatory && !isStepComplete(c)).length,
+  };
+}
+
+const fmtDate = (d: string) => new Date(d).toLocaleDateString("en-KE", { day: "2-digit", month: "short", year: "numeric" });
 
 type Asset = {
   id: string;
@@ -59,6 +123,258 @@ type Asset = {
   assigned_to: string | null;
   created_at: string;
 };
+
+type PersonLookup = (id: string | null | undefined) => string;
+
+function StepRow({ c, canEdit, isFull, userId, ictStaff, nameOf, onChanged }: {
+  c: Control; canEdit: boolean; isFull: boolean; userId: string | undefined;
+  ictStaff: { id: string; full_name: string | null }[]; nameOf: PersonLookup; onChanged: () => void;
+}) {
+  const [note, setNote] = useState(c.evidence_note ?? "");
+  const [dirty, setDirty] = useState(false);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { if (!dirty) setNote(c.evidence_note ?? ""); }, [c.evidence_note, dirty]);
+
+  // A verified step is locked for everyone except full-module roles (server-enforced too).
+  const locked = !canEdit || (c.status === "verified" && !isFull);
+  const today = new Date().toISOString().slice(0, 10);
+  const overdue = !!c.due_date && c.due_date < today && !isStepComplete(c);
+  const tbl = () => supabase.from("ict_case_controls" as any) as any;
+
+  async function run(patch: Record<string, unknown>, withNote: boolean, okMsg?: string) {
+    setBusy(true);
+    const { error } = await tbl().update(withNote ? { evidence_note: note.trim() || null, ...patch } : patch).eq("id", c.id);
+    setBusy(false);
+    if (error) { toast.error(error.message); return; }
+    if (withNote) setDirty(false);
+    if (okMsg) toast.success(okMsg);
+    onChanged();
+  }
+  async function remove() {
+    if (!confirm("Remove this step?")) return;
+    const { error } = await tbl().delete().eq("id", c.id);
+    if (error) toast.error(error.message); else onChanged();
+  }
+
+  const selfCompleted = c.status === "done" && c.requires_verification && c.completed_by === userId;
+  const canVerify = !locked && c.status === "done" && c.requires_verification && !selfCompleted;
+
+  return (
+    <li className="border rounded-md p-3 bg-background space-y-2">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-sm font-medium">{c.title}</span>
+            {c.mandatory && <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary uppercase tracking-wide">Required</span>}
+            {c.requires_verification && <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 inline-flex items-center gap-1"><ShieldCheck className="h-3 w-3" />2nd-person check</span>}
+            {overdue && <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200">Overdue</span>}
+          </div>
+          {c.guidance && <p className="text-xs text-muted-foreground mt-0.5">{c.guidance}</p>}
+        </div>
+        {locked ? (
+          <span className={`text-xs px-2 py-0.5 rounded shrink-0 ${STEP_COLORS[c.status]}`}>{STEP_LABEL[c.status]}</span>
+        ) : (
+          <select
+            value={c.status === "verified" ? "done" : c.status}
+            disabled={busy || c.status === "verified"}
+            onChange={(e) => run({ status: e.target.value }, true)}
+            className={`h-7 px-2 rounded text-xs border bg-background shrink-0 ${STEP_COLORS[c.status]}`}
+          >
+            {(["not_started", "in_progress", "blocked", "done", "not_applicable"] as StepStatus[]).map((st) => (
+              <option key={st} value={st}>{STEP_LABEL[st]}</option>
+            ))}
+          </select>
+        )}
+      </div>
+
+      {(c.requires_evidence || c.status !== "not_started" || note || !locked) && (
+        locked ? (
+          c.evidence_note ? <p className="text-xs whitespace-pre-wrap rounded bg-muted/40 px-2 py-1.5">{c.evidence_note}</p> : null
+        ) : (
+          <div className="space-y-1">
+            <textarea
+              rows={2}
+              value={note}
+              disabled={busy}
+              onChange={(e) => { setNote(e.target.value); setDirty(true); }}
+              placeholder={(c.requires_evidence ? "Evidence required — " : "Notes — ") + (c.evidence_hint ?? "what was done, reference, who confirmed")}
+              className="w-full px-2 py-1.5 rounded-md border bg-background text-xs"
+            />
+            {dirty && (
+              <button type="button" disabled={busy} onClick={() => run({}, true, "Note saved")} className="h-7 px-2 rounded-md border text-xs hover:border-primary/60 disabled:opacity-50">Save note</button>
+            )}
+          </div>
+        )
+      )}
+
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted-foreground">
+        {locked ? (
+          <>
+            {c.assigned_to && <span>Owner: {nameOf(c.assigned_to)}</span>}
+            {c.due_date && <span className={overdue ? "text-destructive" : ""}>Due {fmtDate(c.due_date)}</span>}
+          </>
+        ) : (
+          <>
+            <label className="inline-flex items-center gap-1.5">Owner
+              <select
+                value={c.assigned_to ?? ""}
+                disabled={busy}
+                onChange={(e) => run({ assigned_to: e.target.value || null }, false)}
+                className="h-7 px-1.5 rounded border bg-background text-xs"
+              >
+                <option value="">Unassigned</option>
+                {ictStaff.map((p) => <option key={p.id} value={p.id}>{p.full_name ?? "Unnamed"}</option>)}
+              </select>
+            </label>
+            <label className="inline-flex items-center gap-1.5">Due
+              <input
+                type="date"
+                value={c.due_date ?? ""}
+                disabled={busy}
+                onChange={(e) => run({ due_date: e.target.value || null }, false)}
+                className="h-7 px-1.5 rounded border bg-background text-xs"
+              />
+            </label>
+          </>
+        )}
+        {c.completed_at && (c.status === "done" || c.status === "verified") && (
+          <span>Done by {nameOf(c.completed_by)} · {fmtDate(c.completed_at)}</span>
+        )}
+        {c.status === "not_applicable" && c.completed_at && <span>Marked by {nameOf(c.completed_by)} · {fmtDate(c.completed_at)}</span>}
+        {c.status === "verified" && c.verified_at && (
+          <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-300"><CheckCircle2 className="h-3 w-3" />Verified by {nameOf(c.verified_by)} · {fmtDate(c.verified_at)}</span>
+        )}
+        {selfCompleted && <span className="text-amber-700 dark:text-amber-300">Waiting for someone else to verify</span>}
+        <span className="ml-auto inline-flex items-center gap-2">
+          {canVerify && (
+            <button type="button" disabled={busy} onClick={() => run({ status: "verified" }, true, "Step verified")} className="h-7 px-2 rounded-md bg-emerald-600 text-white text-xs inline-flex items-center gap-1 disabled:opacity-50">
+              <ShieldCheck className="h-3 w-3" />Verify
+            </button>
+          )}
+          {isFull && c.status === "verified" && (
+            <button type="button" disabled={busy} onClick={() => run({ status: "in_progress" }, false, "Step reopened")} className="h-7 px-2 rounded-md border text-xs hover:border-primary/60 disabled:opacity-50">Reopen</button>
+          )}
+          {!locked && c.template_control_id === null && c.status === "not_started" && (
+            <button type="button" onClick={remove} title="Remove step" className="p-1 hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
+          )}
+        </span>
+      </div>
+    </li>
+  );
+}
+
+function ChecklistPanel({ ticket, controls, templates, canWork, isFull, userId, ictStaff, nameOf, onChanged }: {
+  ticket: Ticket; controls: Control[]; templates: ServiceTemplate[]; canWork: boolean; isFull: boolean;
+  userId: string | undefined; ictStaff: { id: string; full_name: string | null }[]; nameOf: PersonLookup; onChanged: () => void;
+}) {
+  const [custom, setCustom] = useState("");
+  const [busy, setBusy] = useState(false);
+  const sorted = useMemo(
+    () => [...controls].sort((a, b) => a.sort_order - b.sort_order || a.created_at.localeCompare(b.created_at)),
+    [controls],
+  );
+  const pr = progressOf(sorted);
+  const ticketClosed = ticket.status === "Closed";
+  const canEdit = canWork && (!ticketClosed || isFull);
+  const type = ticket.service_type ?? "general";
+  const typeTitle = templates.find((t) => t.service_type === type)?.title ?? type;
+  const tbl = () => supabase.from("ict_case_controls" as any) as any;
+
+  async function changeType(next: string) {
+    const { error } = await supabase.from("ict_tickets").update({ service_type: next } as any).eq("id", ticket.id);
+    if (error) toast.error(error.message); else { toast.success("Service type changed"); onChanged(); }
+  }
+  async function syncChecklist() {
+    setBusy(true);
+    const { data, error } = await (supabase as any).rpc("sync_ict_ticket_checklist", { _ticket_id: ticket.id });
+    setBusy(false);
+    if (error) { toast.error(error.message); return; }
+    toast.success(data > 0 ? `${data} step${data === 1 ? "" : "s"} added` : "Checklist is already up to date");
+    onChanged();
+  }
+  async function addCustom(e: React.FormEvent) {
+    e.preventDefault();
+    if (!custom.trim() || !userId) return;
+    setBusy(true);
+    const next = (sorted[sorted.length - 1]?.sort_order ?? 0) + 10;
+    const { error } = await tbl().insert({
+      ticket_id: ticket.id,
+      control_key: `custom_${Date.now().toString(36)}`,
+      category: "custom",
+      title: custom.trim(),
+      mandatory: false,
+      requires_evidence: false,
+      requires_verification: false,
+      sort_order: next,
+      created_by: userId,
+    });
+    setBusy(false);
+    if (error) { toast.error(error.message); return; }
+    setCustom("");
+    onChanged();
+  }
+
+  return (
+    <div className="px-4 py-3 bg-muted/20 border-t space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <ListChecks className="h-4 w-4 text-primary" />
+          {typeTitle} checklist
+          {pr.total > 0 && <span className="text-xs font-normal text-muted-foreground">{pr.complete} of {pr.total} complete</span>}
+        </div>
+        {canEdit && templates.length > 0 && (
+          <label className="text-xs text-muted-foreground inline-flex items-center gap-1.5">Type
+            <select value={type} onChange={(e) => changeType(e.target.value)} className="h-7 px-1.5 rounded border bg-background text-xs">
+              {templates.map((t) => <option key={t.service_type} value={t.service_type}>{t.title}</option>)}
+            </select>
+          </label>
+        )}
+      </div>
+
+      {pr.total > 0 && (
+        <div className="space-y-1">
+          <div className="h-1.5 rounded-full bg-muted overflow-hidden"><div className="h-full bg-emerald-500 transition-all" style={{ width: `${Math.round((pr.complete / pr.total) * 100)}%` }} /></div>
+          {pr.mandatoryOpen > 0 && ticket.status !== "Resolved" && ticket.status !== "Closed" && (
+            <p className="text-xs text-muted-foreground">
+              {pr.mandatoryOpen} required step{pr.mandatoryOpen === 1 ? "" : "s"} must be finished before this ticket can be resolved or closed.
+            </p>
+          )}
+          {ticketClosed && !isFull && <p className="text-xs text-muted-foreground">This ticket is closed — the checklist is read-only.</p>}
+        </div>
+      )}
+
+      {sorted.length === 0 ? (
+        <div className="text-sm text-muted-foreground flex flex-wrap items-center gap-3">
+          <span>No checklist on this ticket.</span>
+          {canEdit && (
+            <button type="button" disabled={busy} onClick={syncChecklist} className="h-8 px-3 rounded-md bg-primary text-primary-foreground text-xs disabled:opacity-50">Add {typeTitle} checklist</button>
+          )}
+        </div>
+      ) : (
+        <ul className="space-y-2">
+          {sorted.map((c) => (
+            <StepRow key={c.id} c={c} canEdit={canEdit} isFull={isFull} userId={userId} ictStaff={ictStaff} nameOf={nameOf} onChanged={onChanged} />
+          ))}
+        </ul>
+      )}
+
+      {canEdit && sorted.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <form onSubmit={addCustom} className="flex gap-2 flex-1 min-w-[16rem]">
+            <input
+              value={custom}
+              onChange={(e) => setCustom(e.target.value)}
+              placeholder="Add an extra step for this ticket"
+              className="flex-1 h-8 px-3 rounded-md border bg-background text-xs"
+            />
+            <button disabled={busy || !custom.trim()} className="h-8 px-3 rounded-md border text-xs hover:border-primary/60 disabled:opacity-50 inline-flex items-center gap-1"><Plus className="h-3 w-3" />Add</button>
+          </form>
+          <button type="button" disabled={busy} onClick={syncChecklist} title="Add any template steps this ticket doesn't have yet" className="h-8 px-3 rounded-md border text-xs text-muted-foreground hover:border-primary/60 disabled:opacity-50">Sync with template</button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function StatCard({ icon: Icon, label, value }: { icon: any; label: string; value: number }) {
   return (
@@ -91,6 +407,14 @@ function IctServiceDesk() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
 
+  // Service templates + checklists. If the migration hasn't been applied yet these
+  // stay empty and the page behaves exactly as before.
+  const [templates, setTemplates] = useState<ServiceTemplate[]>([]);
+  const [controls, setControls] = useState<Control[]>([]);
+  const [maintenanceCount, setMaintenanceCount] = useState(0);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [typeFilter, setTypeFilter] = useState("");
+
   const [assets, setAssets] = useState<Asset[]>([]);
   const [assetTotalQty, setAssetTotalQty] = useState(0);
   const [assetFormOpen, setAssetFormOpen] = useState(false);
@@ -102,7 +426,7 @@ function IctServiceDesk() {
   // plain select gives each viewer exactly the counts/rows they should see.
   async function load() {
     setLoading(true);
-    const [ticketsRes, openRes, criticalRes, staffRes, assetsRes, teamRes] = await Promise.all([
+    const [ticketsRes, openRes, criticalRes, staffRes, assetsRes, teamRes, tplRes, ctlRes, maintRes] = await Promise.all([
       supabase.from("ict_tickets").select("*").order("created_at", { ascending: false }),
       supabase.from("ict_tickets").select("id", { count: "exact", head: true }).not("status", "in", "(Resolved,Closed)"),
       supabase.from("ict_tickets").select("id", { count: "exact", head: true }).eq("priority", "Critical"),
@@ -111,12 +435,19 @@ function IctServiceDesk() {
       // nothing for everyone else instead of erroring.
       fullAccess ? supabase.from("ict_assets").select("*").order("name") : Promise.resolve({ data: [], error: null }),
       supabase.from("ict_service_desk_team").select("user_id"),
+      (supabase.from("ict_service_templates" as any) as any).select("service_type, title, description, sort_order").eq("active", true).order("sort_order"),
+      (supabase.from("ict_case_controls" as any) as any).select("*"),
+      supabase.from("ict_tickets").select("id", { count: "exact", head: true }).eq("service_type", "maintenance").not("status", "in", "(Resolved,Closed)"),
     ]);
     if (ticketsRes.error) toast.error(ticketsRes.error.message);
     if (assetsRes.error) toast.error(assetsRes.error.message);
     setTickets((ticketsRes.data as Ticket[]) ?? []);
     setOpenCount(openRes.count ?? 0);
     setCriticalCount(criticalRes.count ?? 0);
+    // Template/checklist queries fail harmlessly until the migration is applied.
+    setTemplates(tplRes.error ? [] : ((tplRes.data as ServiceTemplate[]) ?? []));
+    setControls(ctlRes.error ? [] : ((ctlRes.data as Control[]) ?? []));
+    setMaintenanceCount(maintRes.error ? 0 : (maintRes.count ?? 0));
     const directory = (staffRes.data as any[]) ?? [];
     setAllStaff(directory);
     // Ticket assignees are the ICT service-desk team (ict_service_desk_team
@@ -140,6 +471,7 @@ function IctServiceDesk() {
     const ch = supabase
       .channel("ict-desk-tickets")
       .on("postgres_changes", { event: "*", schema: "public", table: "ict_tickets" }, () => load())
+      .on("postgres_changes", { event: "*", schema: "public", table: "ict_case_controls" }, () => load())
       .subscribe();
     return () => { supabase.removeChannel(ch); };
   }, []);
@@ -203,6 +535,17 @@ function IctServiceDesk() {
     if (error) toast.error(error.message); else { toast.success("Ticket deleted"); load(); }
   }
 
+  const controlsByTicket = useMemo(() => {
+    const m = new Map<string, Control[]>();
+    for (const c of controls) { const a = m.get(c.ticket_id); if (a) a.push(c); else m.set(c.ticket_id, [c]); }
+    return m;
+  }, [controls]);
+  const nameOf: PersonLookup = (id) => (id ? allStaff.find((p) => p.id === id)?.full_name ?? "Unknown" : "—");
+  const typeTitle = (key: string | null | undefined) => templates.find((t) => t.service_type === key)?.title ?? (key && key !== "general" ? key : "General");
+  const visibleTickets = typeFilter ? tickets.filter((t) => (t.service_type ?? "general") === typeFilter) : tickets;
+  const toggleExpanded = (id: string) => setExpanded((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const selectedTemplate = templates.find((t) => t.service_type === form.service_type);
+
   async function submitTicket(e: React.FormEvent) {
     e.preventDefault();
     if (!form.title.trim() || !user) return;
@@ -216,7 +559,9 @@ function IctServiceDesk() {
         priority: form.priority,
         assigned_to: form.assigned_to || null,
         reported_by: user.id,
-      })
+        // only sent once the templates migration is in place
+        ...(templates.length > 0 ? { service_type: form.service_type } : {}),
+      } as any)
       .select("ticket_number")
       .single();
     setSaving(false);
@@ -247,19 +592,27 @@ function IctServiceDesk() {
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
         <StatCard icon={Ticket} label="Open Tickets" value={openCount} />
         {fullAccess && <StatCard icon={HardDrive} label="Assets" value={assetTotalQty} />}
-        <StatCard icon={Wrench} label="Active Maintenance" value={0} />
+        <StatCard icon={Wrench} label="Active Maintenance" value={maintenanceCount} />
         <StatCard icon={AlertTriangle} label="Critical Issues" value={criticalCount} />
       </div>
 
       <div className="bg-card border rounded-lg overflow-hidden">
-        <div className="px-4 py-3 border-b text-sm font-medium">
-          {canManageTickets ? "All tickets" : "Your tickets"}
+        <div className="px-4 py-3 border-b flex flex-wrap items-center justify-between gap-2">
+          <span className="text-sm font-medium">{canManageTickets ? "All tickets" : "Your tickets"}</span>
+          {templates.length > 0 && (
+            <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="h-8 px-2 rounded-md border bg-background text-xs">
+              <option value="">All request types</option>
+              {templates.map((t) => <option key={t.service_type} value={t.service_type}>{t.title}</option>)}
+            </select>
+          )}
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-muted/40 text-left text-xs text-muted-foreground border-b">
               <tr>
+                {templates.length > 0 && <th className="w-8"></th>}
                 <th className="py-2 px-3">Ticket</th>
+                {templates.length > 0 && <th>Type</th>}
                 <th>Category</th>
                 <th>Priority</th>
                 <th>Status</th>
@@ -270,14 +623,40 @@ function IctServiceDesk() {
             </thead>
             <tbody>
               {!loading && tickets.length === 0 && (
-                <tr><td colSpan={fullAccess ? 7 : 6} className="py-10 text-center text-muted-foreground">No tickets yet.</td></tr>
+                <tr><td colSpan={(fullAccess ? 7 : 6) + (templates.length > 0 ? 2 : 0)} className="py-10 text-center text-muted-foreground">{tickets.length === 0 ? "No tickets yet." : "No tickets of this type."}</td></tr>
               )}
-              {tickets.map((t) => (
-                <tr key={t.id} className="border-b last:border-0 hover:bg-muted/30">
+              {visibleTickets.map((t) => {
+                const cs = controlsByTicket.get(t.id) ?? [];
+                const pr = progressOf(cs);
+                const isOpen = expanded.has(t.id);
+                const colCount = (fullAccess ? 7 : 6) + 2;
+                return (
+                <Fragment key={t.id}>
+                <tr className="border-b last:border-0 hover:bg-muted/30">
+                  {templates.length > 0 && (
+                    <td className="pl-2">
+                      <button onClick={() => toggleExpanded(t.id)} title={isOpen ? "Hide checklist" : "Show checklist"} className="p-1 text-muted-foreground hover:text-primary">
+                        {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                      </button>
+                    </td>
+                  )}
                   <td className="py-2 px-3">
                     <div className="font-medium">{t.title}</div>
                     <div className="text-xs text-muted-foreground">{t.ticket_number}</div>
                   </td>
+                  {templates.length > 0 && (
+                    <td className="text-xs">
+                      <div>{typeTitle(t.service_type)}</div>
+                      {pr.total > 0 && (
+                        <button onClick={() => toggleExpanded(t.id)} className="mt-0.5 inline-flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground hover:text-primary">
+                          <span className="font-medium">{pr.complete}/{pr.total} steps</span>
+                          {pr.blocked > 0 && <span className="px-1 rounded bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200">{pr.blocked} blocked</span>}
+                          {pr.awaiting > 0 && <span className="px-1 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">{pr.awaiting} to verify</span>}
+                          {pr.overdue > 0 && <span className="px-1 rounded bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200">{pr.overdue} overdue</span>}
+                        </button>
+                      )}
+                    </td>
+                  )}
                   <td className="text-xs text-muted-foreground">{t.category ?? "—"}</td>
                   <td><span className={`text-xs px-2 py-0.5 rounded ${PRIORITY_COLORS[t.priority ?? ""] ?? "bg-muted text-muted-foreground"}`}>{t.priority ?? "—"}</span></td>
                   <td>
@@ -314,7 +693,26 @@ function IctServiceDesk() {
                     </td>
                   )}
                 </tr>
-              ))}
+                {templates.length > 0 && isOpen && (
+                  <tr className="border-b last:border-0">
+                    <td colSpan={colCount} className="p-0">
+                      <ChecklistPanel
+                        ticket={t}
+                        controls={cs}
+                        templates={templates}
+                        canWork={canManageTickets}
+                        isFull={fullAccess}
+                        userId={user?.id}
+                        ictStaff={staff}
+                        nameOf={nameOf}
+                        onChanged={load}
+                      />
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -396,6 +794,19 @@ function IctServiceDesk() {
               rows={3}
               className="w-full px-3 py-2 rounded-md border bg-background text-sm"
             />
+            {templates.length > 0 && (
+              <div>
+                <label className="text-xs text-muted-foreground">What kind of request is this?</label>
+                <select
+                  value={form.service_type}
+                  onChange={(e) => setForm({ ...form, service_type: e.target.value })}
+                  className="w-full h-9 px-3 rounded-md border bg-background text-sm mt-1"
+                >
+                  {templates.map((t) => <option key={t.service_type} value={t.service_type}>{t.title}</option>)}
+                </select>
+                {selectedTemplate?.description && <p className="text-xs text-muted-foreground mt-1">{selectedTemplate.description}</p>}
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-2">
               <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className="h-9 px-3 rounded-md border bg-background text-sm">
                 {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
