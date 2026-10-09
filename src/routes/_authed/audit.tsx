@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, Outlet, useChildMatches } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -10,7 +10,17 @@ import { CompletionInvoiceDialog } from "@/components/completion-invoice-dialog"
 import { ModuleTabBar, ClientsRollupTab, BillingTab, DocumentsTab, type ClientRollupRow } from "@/components/module-extra-tabs";
 import { useAuth } from "@/lib/auth";
 
-export const Route = createFileRoute("/_authed/audit")({ component: AuditPage });
+export const Route = createFileRoute("/_authed/audit")({ component: AuditRoute });
+
+// /audit/$id (an engagement workspace) is a child route of /audit. Without an
+// <Outlet /> the parent keeps rendering this list and the workspace (planning,
+// risk register, review and sign-off panels) never opens. Show the child
+// whenever one is matched and the list otherwise.
+function AuditRoute() {
+  const childMatches = useChildMatches();
+  if (childMatches.length > 0) return <Outlet />;
+  return <AuditPage />;
+}
 
 function AuditPage() {
   const { user, isAdmin, canCreate, canDelete } = useAuth();
