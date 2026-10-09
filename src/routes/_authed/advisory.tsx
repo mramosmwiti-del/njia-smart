@@ -125,7 +125,8 @@ const STATUSES: Array<{ key: CaseStatus; label: string }> = [
 const SERVICE_MAP = Object.fromEntries(SERVICES.map((s) => [s.key, s])) as Record<ServiceKey, (typeof SERVICES)[number]>;
 
 function AdvisoryPage() {
-  const { user } = useAuth();
+  const { user, isAdmin, canUse } = useAuth();
+  const canWorkAdvisory = canUse("advisory");
   const [cases, setCases] = useState<any[]>([]);
   const [clients, setClients] = useState<any[]>([]);
   const [staff, setStaff] = useState<any[]>([]);
@@ -207,6 +208,7 @@ function AdvisoryPage() {
         status: "not_started",
         stage: newCase.service,
         start_date: new Date().toISOString().slice(0, 10),
+        created_by: user?.id ?? null,
       })
       .select("id")
       .single();
@@ -356,9 +358,11 @@ function AdvisoryPage() {
           <h1 className="text-2xl font-bold">Advisory</h1>
           <p className="text-sm text-muted-foreground">Client cases, activities and regulatory work — without forced project stages.</p>
         </div>
-        <button onClick={() => setShowNew(true)} className="h-9 px-3 rounded-md bg-primary text-primary-foreground text-sm inline-flex items-center gap-2">
-          <Plus className="h-4 w-4" /> New advisory case
-        </button>
+        {canWorkAdvisory && (
+          <button onClick={() => setShowNew(true)} className="h-9 px-3 rounded-md bg-primary text-primary-foreground text-sm inline-flex items-center gap-2">
+            <Plus className="h-4 w-4" /> New advisory case
+          </button>
+        )}
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-2">
@@ -462,10 +466,14 @@ function AdvisoryPage() {
                 </div>
                 <div className="border rounded-lg p-3 space-y-2">
                   <div className="text-xs font-medium">Case status</div>
-                  <select value={selected.status} onChange={(e) => updateCase({ status: e.target.value })} className="w-full h-9 px-2 rounded-md border bg-background text-sm">
-                    {STATUSES.map((status) => <option key={status.key} value={status.key}>{status.label}</option>)}
-                  </select>
-                  <div className="text-[11px] text-muted-foreground">No mandatory project stages. Activities can be added, removed or rearranged as the case develops.</div>
+                  {isAdmin || selected.status !== "completed" ? (
+                    <select value={selected.status} onChange={(e) => updateCase({ status: e.target.value })} className="w-full h-9 px-2 rounded-md border bg-background text-sm">
+                      {STATUSES.filter((status) => isAdmin || status.key !== "completed").map((status) => <option key={status.key} value={status.key}>{status.label}</option>)}
+                    </select>
+                  ) : (
+                    <div className="text-sm rounded-md border px-3 py-2">Completed — contact Director/Admin if a correction is required.</div>
+                  )}
+                  <div className="text-[11px] text-muted-foreground">Handlers can update working status, but only Director/Admin can complete or reopen a completed case.</div>
                 </div>
               </div>
 
@@ -483,12 +491,12 @@ function AdvisoryPage() {
                           <div className={`flex-1 min-w-0 text-sm ${activity.done ? "line-through text-muted-foreground" : ""}`}>{activity.title}</div>
                           {activity.due_date && <span className="text-[11px] text-muted-foreground">Due {formatDate(activity.due_date)}</span>}
                           <button onClick={() => { const next = !expandedActivity[activity.id]; setExpandedActivity((v) => ({ ...v, [activity.id]: next })); if (next && !activityDocs[activity.id]) loadDocs(activity.id); }} className="text-muted-foreground"><ChevronDown className={`h-4 w-4 transition ${expandedActivity[activity.id] ? "rotate-180" : ""}`} /></button>
-                          <button onClick={() => deleteActivity(activity.id)} className="text-destructive"><Trash2 className="h-4 w-4" /></button>
+                          {isAdmin && <button onClick={() => deleteActivity(activity.id)} className="text-destructive" title="Delete activity"><Trash2 className="h-4 w-4" /></button>}
                         </div>
                         {(assignee || activity.notes) && <div className="ml-7 mt-1 text-xs text-muted-foreground">{assignee && `Assigned to ${assignee}`}{assignee && activity.notes && " · "}{activity.notes}</div>}
                         {expandedActivity[activity.id] && (
                           <div className="ml-7 mt-3 border-t pt-3 space-y-2">
-                            <div className="flex items-center justify-between"><div className="text-xs font-medium">Documents</div><label className="cursor-pointer text-xs inline-flex items-center gap-1 px-2 py-1 rounded bg-primary text-primary-foreground"><Upload className="h-3 w-3" />{uploading === activity.id ? "Uploading…" : "Upload"}<input type="file" hidden disabled={uploading === activity.id} onChange={(e) => { const file = e.target.files?.[0]; if (file) uploadDocument(activity.id, file); e.target.value = ""; }} /></label></div>
+                            <div className="flex items-center justify-between"><div className="text-xs font-medium">Documents</div>{canWorkAdvisory && <label className="cursor-pointer text-xs inline-flex items-center gap-1 px-2 py-1 rounded bg-primary text-primary-foreground"><Upload className="h-3 w-3" />{uploading === activity.id ? "Uploading…" : "Upload"}<input type="file" hidden disabled={uploading === activity.id} onChange={(e) => { const file = e.target.files?.[0]; if (file) uploadDocument(activity.id, file); e.target.value = ""; }} /></label>}</div>
                             {docs.length === 0 ? <div className="text-xs text-muted-foreground">No documents attached.</div> : docs.map((doc: any) => <button key={doc.id} onClick={() => openDocument(doc.file_path)} className="w-full text-left flex items-center gap-2 text-xs p-2 rounded hover:bg-muted"><FileText className="h-4 w-4" /><span className="truncate">{doc.title}</span></button>)}
                           </div>
                         )}
@@ -497,18 +505,19 @@ function AdvisoryPage() {
                   })}
                 </div>
 
-                <div className="border-t pt-3 grid md:grid-cols-4 gap-2">
+                {canWorkAdvisory && <div className="border-t pt-3 grid md:grid-cols-4 gap-2">
                   <input value={activityTitle} onChange={(e) => setActivityTitle(e.target.value)} placeholder="Activity / requirement *" className="h-9 px-3 rounded-md border bg-background text-sm md:col-span-2" />
                   <input type="date" value={activityDue} onChange={(e) => setActivityDue(e.target.value)} className="h-9 px-3 rounded-md border bg-background text-sm" />
                   <select value={activityAssignee} onChange={(e) => setActivityAssignee(e.target.value)} className="h-9 px-3 rounded-md border bg-background text-sm"><option value="">Assign to…</option>{staff.map((person) => <option key={person.id} value={person.id}>{person.full_name}</option>)}</select>
                   <textarea value={activityNotes} onChange={(e) => setActivityNotes(e.target.value)} placeholder="Notes / action / requirement detail" rows={2} className="md:col-span-3 px-3 py-2 rounded-md border bg-background text-sm" />
                   <button onClick={addActivity} className="h-9 rounded-md bg-primary text-primary-foreground text-sm self-end">Add activity</button>
-                </div>
+                </div>}
               </div>
 
               <div className="flex items-center justify-between gap-2 border-t pt-4">
-                <button onClick={() => setEditing(selected)} className="h-9 px-3 rounded-md border text-sm inline-flex items-center gap-2"><Pencil className="h-4 w-4" /> Edit case</button>
-                <button onClick={() => deleteCase(selected.id)} className="h-9 px-3 rounded-md border border-destructive/30 text-destructive text-sm inline-flex items-center gap-2"><Trash2 className="h-4 w-4" /> Delete case</button>
+                {canWorkAdvisory && <button onClick={() => setEditing(selected)} className="h-9 px-3 rounded-md border text-sm inline-flex items-center gap-2"><Pencil className="h-4 w-4" /> Edit professional details</button>}
+                {isAdmin && <button onClick={() => deleteCase(selected.id)} className="h-9 px-3 rounded-md border border-destructive/30 text-destructive text-sm inline-flex items-center gap-2"><Trash2 className="h-4 w-4" /> Delete case</button>}
+                {!isAdmin && <span className="text-xs text-muted-foreground">Case identity, classification, deadlines and deletion are restricted to Director/Admin.</span>}
               </div>
             </div>
           </div>
