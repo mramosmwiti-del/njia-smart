@@ -7,21 +7,14 @@ import { formatDate, formatDateTime, STATUS_COLORS, statusLabel } from "@/lib/fo
 import { useAuth } from "@/lib/auth";
 import { ClientAssignments } from "@/components/client-assignments";
 import { CompletionInvoiceDialog, LinkedInvoice } from "@/components/completion-invoice-dialog";
+import { getAuditWorkspaceSections } from "@/lib/audit/registry";
 
 export const Route = createFileRoute("/_authed/audit/$id")({ component: AuditDetail });
 
 const STATUSES = ["not_started","in_progress","under_review","completed"];
-const CATEGORIES: { v: string; label: string }[] = [
-  { v: "planning", label: "Audit planning" },
-  { v: "programs", label: "Audit programs" },
-  { v: "risk", label: "Risk assessment" },
-  { v: "working_papers", label: "Working papers" },
-  { v: "sampling", label: "Sampling" },
-  { v: "review_notes", label: "Review notes" },
-  { v: "financial_statements", label: "Financial statements" },
-  { v: "completion", label: "Completion tracking" },
-  { v: "final_report", label: "Final audit report" },
-];
+// Workspace sections come from the active procedure pack, not a hardcoded page list.
+// This preserves existing category IDs so current workpapers and review notes remain compatible.
+const CATEGORIES = getAuditWorkspaceSections().map(({ id, label }) => ({ v: id, label }));
 
 function AuditDetail() {
   const { id } = useParams({ from: "/_authed/audit/$id" });
