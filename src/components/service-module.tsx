@@ -104,7 +104,7 @@ export function ServiceModulePage({
   const moduleClientIds = Array.from(new Set(rows.map(r => r.client_id).filter(Boolean)));
 
   async function loadBilling() {
-    const { data, error } = await supabase.from("invoices").select("*, clients(company_name)").eq("service_line", moduleLabel).order("issue_date", { ascending: false });
+    const { data, error } = await supabase.from("invoices").select("*, clients(company_name)").eq("service_line", moduleKey).order("issue_date", { ascending: false });
     if (error) toast.error(error.message); else setInvoices(data ?? []);
   }
   async function loadDocuments() {
