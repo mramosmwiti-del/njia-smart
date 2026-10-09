@@ -9,6 +9,7 @@ import { ClientAssignments } from "@/components/client-assignments";
 import { CompletionInvoiceDialog, LinkedInvoice } from "@/components/completion-invoice-dialog";
 import { getAuditWorkspaceSections } from "@/lib/audit/registry";
 import { AuditPlanningWorkbench } from "@/components/audit/audit-planning-workbench";
+import { AuditReviewControls } from "@/components/audit/audit-review-controls";
 
 export const Route = createFileRoute("/_authed/audit/$id")({ component: AuditDetail });
 
@@ -106,8 +107,13 @@ function AuditDetail() {
     if (error) toast.error(error.message); else { setNoteText(""); load(); }
   }
   async function toggleNote(nid: string, resolved: boolean) {
-    await supabase.from("audit_review_notes").update({ resolved }).eq("id", nid);
-    load();
+    const resolutionNote = resolved ? window.prompt("Document how this review note was addressed (optional):", "") : null;
+    if (resolved && resolutionNote === null) return;
+    const { error } = await supabase.from("audit_review_notes").update({
+      resolved,
+      ...(resolved ? { resolved_by: user?.id ?? null, resolved_at: new Date().toISOString(), resolution_note: resolutionNote.trim() || null } : { resolved_by: null, resolved_at: null, resolution_note: null }),
+    } as any).eq("id", nid);
+    if (error) toast.error(error.message); else { toast.success(resolved ? "Review note resolved" : "Review note reopened"); load(); }
   }
 
   async function addTask() {
@@ -199,6 +205,7 @@ function AuditDetail() {
       {e.client_id && <ClientAssignments clientId={e.client_id} />}
 
       <AuditPlanningWorkbench engagementId={id} workpapers={wp.map((workpaper) => ({ id: workpaper.id, title: workpaper.title }))} />
+      <AuditReviewControls engagementId={id} staff={staff.map((person: any) => ({ id: person.id, full_name: person.full_name }))} />
 
       <div className="bg-card border rounded-lg p-4">
         <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
@@ -298,7 +305,8 @@ function AuditDetail() {
                     <div className="flex-1 whitespace-pre-wrap">{n.body}</div>
                     <button onClick={()=>toggleNote(n.id, !n.resolved)} className="text-xs text-primary">{n.resolved ? "Reopen" : "Resolve"}</button>
                   </div>
-                  <div className="text-xs text-muted-foreground">{n.profiles?.full_name} · {formatDate(n.created_at)}</div>
+                  <div className="text-xs text-muted-foreground">{n.profiles?.full_name} · {formatDate(n.created_at)}{n.resolved && n.resolved_at ? ` · resolved ${formatDate(n.resolved_at)}` : ""}</div>
+                  {n.resolved && n.resolution_note && <div className="mt-1 text-xs text-muted-foreground">Resolution: {n.resolution_note}</div>}
                 </div>
               ))}
             </div>
