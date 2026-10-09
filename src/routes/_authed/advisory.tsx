@@ -143,71 +143,7 @@ function AdvisoryPage() {
   const [activityNotes, setActivityNotes] = useState("");
   const [expandedActivity, setExpandedActivity] = useState<Record<string, boolean>>({});
   const [activityDocs, setActivityDocs] = useState<Record<string, any[]>>({});
-  const [caseControls, setCaseControls] = useState<any[]>([]);
-  const [serviceTemplates, setServiceTemplates] = useState<any[]>([]);
-  const [templateControls, setTemplateControls] = useState<any[]>([]);
-  const [selectedTemplateId, setSelectedTemplateId] = useState("");
-  const [showTemplateManager, setShowTemplateManager] = useState(false);
-  const [newTemplateControl, setNewTemplateControl] = useState({ title: "", category: "documents", guidance: "", evidence_hint: "", legal_reference: "", source_url: "", mandatory: false, applicability_check: false });
-  const [savingControl, setSavingControl] = useState<string | null>(null);
   const [uploading, setUploading] = useState<string | null>(null);
-
-  async function loadTemplates(preferredId?: string) {
-    const { data, error } = await supabase
-      .from("advisory_service_templates" as any)
-      .select("id, service_type, version, title, regulator, legal_basis, source_url, source_checked_at, effective_from, effective_to, active, review_required")
-      .order("service_type", { ascending: true })
-      .order("version", { ascending: false });
-    if (error) {
-      toast.error(`Unable to load service templates: ${error.message}`);
-      return;
-    }
-    const templates = data ?? [];
-    setServiceTemplates(templates);
-    const nextId = preferredId || selectedTemplateId || templates.find((item: any) => item.active)?.id || templates[0]?.id || "";
-    setSelectedTemplateId(nextId);
-    if (nextId) await loadTemplateControls(nextId);
-  }
-
-  async function loadTemplateControls(templateId: string) {
-    const { data, error } = await supabase
-      .from("advisory_template_controls" as any)
-      .select("*")
-      .eq("template_id", templateId)
-      .order("sort_order", { ascending: true });
-    if (error) toast.error(`Unable to load template controls: ${error.message}`);
-    setTemplateControls(data ?? []);
-  }
-
-  async function saveTemplateControl(control: any) {
-    const { error } = await supabase.from("advisory_template_controls" as any).update({
-      title: control.title, category: control.category, guidance: control.guidance || null,
-      evidence_hint: control.evidence_hint || null, legal_reference: control.legal_reference || null,
-      source_url: control.source_url || null, mandatory: control.mandatory,
-      applicability_check: control.applicability_check, active: control.active,
-    }).eq("id", control.id);
-    if (error) toast.error(error.message);
-    else { toast.success("Template control saved. Existing case checklists are unchanged."); await loadTemplateControls(selectedTemplateId); }
-  }
-
-  async function addTemplateControl() {
-    if (!selectedTemplateId || !newTemplateControl.title.trim()) {
-      toast.error("Choose a template and enter a control title.");
-      return;
-    }
-    const key = newTemplateControl.title.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
-    const { error } = await supabase.from("advisory_template_controls" as any).insert({
-      template_id: selectedTemplateId, control_key: `${key}_${Date.now()}`,
-      ...newTemplateControl, title: newTemplateControl.title.trim(), active: true,
-      sort_order: templateControls.length ? Math.max(...templateControls.map((item: any) => Number(item.sort_order) || 0)) + 10 : 10,
-    });
-    if (error) toast.error(error.message);
-    else {
-      toast.success("Control added to the template. It will be used for new cases.");
-      setNewTemplateControl({ title: "", category: "documents", guidance: "", evidence_hint: "", legal_reference: "", source_url: "", mandatory: false, applicability_check: false });
-      await loadTemplateControls(selectedTemplateId);
-    }
-  }
 
   async function load() {
     const [caseResult, clientResult, staffResult] = await Promise.all([
@@ -229,7 +165,6 @@ function AdvisoryPage() {
 
   useEffect(() => {
     load();
-    loadTemplates();
   }, []);
 
   useLiveRefresh(["advisory_projects", "advisory_milestones", "advisory_milestone_documents"], load);
@@ -256,36 +191,8 @@ function AdvisoryPage() {
       return;
     }
     setSelected(data);
-    await loadCaseControls(item.id);
-  }
-
-  async function loadCaseControls(projectId: string) {
-    const { data, error } = await supabase
-      .from("advisory_case_controls" as any)
-      .select("*")
-      .eq("project_id", projectId)
-      .order("category", { ascending: true })
-      .order("created_at", { ascending: true });
-    if (error) {
-      toast.error(`Unable to load regulatory controls: ${error.message}`);
-      setCaseControls([]);
-      return;
-    }
-    setCaseControls(data ?? []);
-  }
-
-  async function updateCaseControl(controlId: string, patch: Record<string, any>) {
-    setSavingControl(controlId);
-    const { error } = await supabase
-      .from("advisory_case_controls" as any)
-      .update({ ...patch, updated_at: new Date().toISOString() })
-      .eq("id", controlId);
-    if (error) toast.error(error.message);
-    else {
-      toast.success("Control updated.");
-      if (selected) await loadCaseControls(selected.id);
-    }
-    setSavingControl(null);
+    setExpandedActivity({});
+    setActivityDocs({});
   }
 
   async function createCase() {
@@ -319,50 +226,6 @@ function AdvisoryPage() {
         template.activities.map((title) => ({ project_id: data.id, title, done: false, stage: null })),
       );
       if (activityError) toast.error(`Case created, but starter activities could not be added: ${activityError.message}`);
-    }
-
-    // Snapshot the current version of the service template into this case so future template
-    // edits do not silently change the checklist already agreed for an open engagement.
-    const { data: serviceTemplate, error: templateError } = await supabase
-      .from("advisory_service_templates" as any)
-      .select("id, version")
-      .eq("service_type", newCase.service)
-      .eq("active", true)
-      .lte("effective_from", new Date().toISOString().slice(0, 10))
-      .order("version", { ascending: false })
-      .or(`effective_to.is.null,effective_to.gte.${new Date().toISOString().slice(0, 10)}`)
-      .limit(1)
-      .maybeSingle();
-    if (templateError) {
-      toast.error(`Case created, but the service template could not be loaded: ${templateError.message}`);
-    } else if (serviceTemplate?.id) {
-      const { data: controls, error: controlsError } = await supabase
-        .from("advisory_template_controls" as any)
-        .select("id, control_key, category, title, guidance, evidence_hint, mandatory, applicability_check, legal_reference, source_url")
-        .eq("template_id", serviceTemplate.id)
-        .eq("active", true)
-        .order("sort_order", { ascending: true });
-      if (controlsError) {
-        toast.error(`Case created, but template controls could not be loaded: ${controlsError.message}`);
-      } else if ((controls ?? []).length) {
-        const snapshots = (controls ?? []).map((control: any) => ({
-          project_id: data.id,
-          template_control_id: control.id ?? null,
-          control_key: control.control_key,
-          category: control.category,
-          title: control.title,
-          guidance: control.guidance,
-          evidence_hint: control.evidence_hint,
-          mandatory: control.mandatory,
-          applicability_check: control.applicability_check,
-          legal_reference: control.legal_reference,
-          source_url: control.source_url,
-          status: "not_started",
-          applicability: control.applicability_check ? "not_assessed" : "applicable",
-        }));
-        const { error: snapshotError } = await supabase.from("advisory_case_controls" as any).insert(snapshots);
-        if (snapshotError) toast.error(`Case created, but regulatory controls could not be added: ${snapshotError.message}`);
-      }
     }
 
     toast.success("Advisory case created.");
@@ -496,7 +359,7 @@ function AdvisoryPage() {
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-bold">Advisory</h1>
-          <p className="text-sm text-muted-foreground">Track advisory service type, workflow stage, case reference and client activities.</p>
+          <p className="text-sm text-muted-foreground">Track advisory services with smart, service-specific activities, case references and client work.</p>
         </div>
         {canWorkAdvisory && (
           <button onClick={() => setShowNew(true)} className="h-9 px-3 rounded-md bg-primary text-primary-foreground text-sm inline-flex items-center gap-2">
@@ -504,32 +367,6 @@ function AdvisoryPage() {
           </button>
         )}
       </div>
-
-      {isAdmin && (
-        <div className="border rounded-lg bg-card">
-          <button onClick={() => setShowTemplateManager((value) => !value)} className="w-full p-4 flex items-center justify-between text-left">
-            <div><div className="font-medium">Kenya service template management</div><div className="text-xs text-muted-foreground">Maintain checklist controls, evidence hints and official-source references for future cases.</div></div>
-            <ChevronDown className={`h-4 w-4 transition ${showTemplateManager ? "rotate-180" : ""}`} />
-          </button>
-          {showTemplateManager && <div className="border-t p-4 space-y-4">
-            <div className="grid md:grid-cols-3 gap-3">
-              <label className="text-xs text-muted-foreground">Service template<select value={selectedTemplateId} onChange={async (e) => { setSelectedTemplateId(e.target.value); await loadTemplateControls(e.target.value); }} className="mt-1 w-full h-9 px-3 rounded-md border bg-background text-sm">{serviceTemplates.map((item: any) => <option key={item.id} value={item.id}>{item.title} · v{item.version}{item.active ? "" : " (inactive)"}</option>)}</select></label>
-              <div className="text-xs text-muted-foreground"><div className="font-medium text-foreground">Regulator / authority</div>{serviceTemplates.find((item: any) => item.id === selectedTemplateId)?.regulator || "Not specified"}<div className="mt-1">{serviceTemplates.find((item: any) => item.id === selectedTemplateId)?.legal_basis || "Confirm the applicable legal basis"}</div></div>
-              <div className="text-xs text-muted-foreground"><div className="font-medium text-foreground">Source review</div>Last checked: {serviceTemplates.find((item: any) => item.id === selectedTemplateId)?.source_checked_at || "Not recorded"}<div className="mt-1">Changes apply to new cases only. Existing case snapshots remain unchanged.</div></div>
-            </div>
-            <div className="space-y-3">
-              {templateControls.map((control: any) => <div key={control.id} className="border rounded-md p-3 space-y-2">
-                <div className="grid md:grid-cols-2 gap-2"><label className="text-[11px] text-muted-foreground">Control title<input value={control.title} onChange={(e) => setTemplateControls((items) => items.map((item) => item.id === control.id ? { ...item, title: e.target.value } : item))} className="mt-1 w-full h-8 px-2 rounded border bg-background text-xs" /></label><label className="text-[11px] text-muted-foreground">Category<input value={control.category} onChange={(e) => setTemplateControls((items) => items.map((item) => item.id === control.id ? { ...item, category: e.target.value } : item))} className="mt-1 w-full h-8 px-2 rounded border bg-background text-xs" /></label></div>
-                <label className="block text-[11px] text-muted-foreground">Guidance<textarea value={control.guidance ?? ""} onChange={(e) => setTemplateControls((items) => items.map((item) => item.id === control.id ? { ...item, guidance: e.target.value } : item))} rows={2} className="mt-1 w-full px-2 py-1.5 rounded border bg-background text-xs" /></label>
-                <div className="grid md:grid-cols-2 gap-2"><label className="text-[11px] text-muted-foreground">Evidence hint<input value={control.evidence_hint ?? ""} onChange={(e) => setTemplateControls((items) => items.map((item) => item.id === control.id ? { ...item, evidence_hint: e.target.value } : item))} className="mt-1 w-full h-8 px-2 rounded border bg-background text-xs" /></label><label className="text-[11px] text-muted-foreground">Legal reference<input value={control.legal_reference ?? ""} onChange={(e) => setTemplateControls((items) => items.map((item) => item.id === control.id ? { ...item, legal_reference: e.target.value } : item))} className="mt-1 w-full h-8 px-2 rounded border bg-background text-xs" /></label></div>
-                <label className="block text-[11px] text-muted-foreground">Official source URL<input value={control.source_url ?? ""} onChange={(e) => setTemplateControls((items) => items.map((item) => item.id === control.id ? { ...item, source_url: e.target.value } : item))} className="mt-1 w-full h-8 px-2 rounded border bg-background text-xs" /></label>
-                <div className="flex flex-wrap items-center gap-3 text-xs"><label className="flex items-center gap-1"><input type="checkbox" checked={control.mandatory} onChange={(e) => setTemplateControls((items) => items.map((item) => item.id === control.id ? { ...item, mandatory: e.target.checked } : item))} /> Required control</label><label className="flex items-center gap-1"><input type="checkbox" checked={control.applicability_check} onChange={(e) => setTemplateControls((items) => items.map((item) => item.id === control.id ? { ...item, applicability_check: e.target.checked } : item))} /> Applicability check</label><label className="flex items-center gap-1"><input type="checkbox" checked={control.active} onChange={(e) => setTemplateControls((items) => items.map((item) => item.id === control.id ? { ...item, active: e.target.checked } : item))} /> Active for new cases</label><button onClick={() => saveTemplateControl(control)} className="ml-auto h-8 px-3 rounded-md bg-primary text-primary-foreground">Save control</button></div>
-              </div>)}
-            </div>
-            <div className="border-t pt-4 space-y-3"><div className="font-medium text-sm">Add a control to this template</div><div className="grid md:grid-cols-2 gap-2"><input value={newTemplateControl.title} onChange={(e) => setNewTemplateControl((v) => ({ ...v, title: e.target.value }))} placeholder="Control title *" className="h-9 px-3 rounded border bg-background text-sm" /><select value={newTemplateControl.category} onChange={(e) => setNewTemplateControl((v) => ({ ...v, category: e.target.value }))} className="h-9 px-3 rounded border bg-background text-sm"><option value="scope">Scope</option><option value="documents">Documents</option><option value="filing">Filing</option><option value="governance">Governance</option><option value="compliance">Compliance</option><option value="review">Review</option><option value="post_registration">Post-registration</option><option value="closeout">Close-out</option></select><textarea value={newTemplateControl.guidance} onChange={(e) => setNewTemplateControl((v) => ({ ...v, guidance: e.target.value }))} placeholder="Guidance" rows={2} className="px-3 py-2 rounded border bg-background text-sm" /><input value={newTemplateControl.evidence_hint} onChange={(e) => setNewTemplateControl((v) => ({ ...v, evidence_hint: e.target.value }))} placeholder="Evidence hint" className="h-9 px-3 rounded border bg-background text-sm" /><input value={newTemplateControl.legal_reference} onChange={(e) => setNewTemplateControl((v) => ({ ...v, legal_reference: e.target.value }))} placeholder="Legal reference" className="h-9 px-3 rounded border bg-background text-sm" /><input value={newTemplateControl.source_url} onChange={(e) => setNewTemplateControl((v) => ({ ...v, source_url: e.target.value }))} placeholder="Official source URL" className="h-9 px-3 rounded border bg-background text-sm" /></div><div className="flex flex-wrap items-center gap-3 text-xs"><label className="flex items-center gap-1"><input type="checkbox" checked={newTemplateControl.mandatory} onChange={(e) => setNewTemplateControl((v) => ({ ...v, mandatory: e.target.checked }))} /> Required control</label><label className="flex items-center gap-1"><input type="checkbox" checked={newTemplateControl.applicability_check} onChange={(e) => setNewTemplateControl((v) => ({ ...v, applicability_check: e.target.checked }))} /> Applicability check</label><button onClick={addTemplateControl} className="ml-auto h-9 px-3 rounded-md bg-primary text-primary-foreground">Add template control</button></div></div>
-          </div>}
-        </div>
-      )}
 
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-2">
         {serviceCounts.map((service) => (
@@ -644,37 +481,6 @@ function AdvisoryPage() {
                   )}
                   <div className="text-[11px] text-muted-foreground">Handlers can update working status, but only Director/Admin can complete or reopen a completed case.</div>
                 </div>
-              </div>
-
-              <div className="border rounded-lg p-4 space-y-3">
-                <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
-                  <div><div className="font-medium">Kenya regulatory controls & service checklist</div><div className="text-xs text-muted-foreground">Case-specific snapshot of the service template. Confirm applicability against current official guidance; a checked list is not a legal compliance determination.</div></div>
-                  <div className="text-xs text-muted-foreground">{caseControls.filter((c) => c.status === "verified").length} verified / {caseControls.length} controls</div>
-                </div>
-                {caseControls.length === 0 ? <div className="text-sm text-muted-foreground py-2">No template controls are attached. Confirm that the Kenya service-template migration has been applied, then create a new case or ask an administrator to attach a template to this case.</div> : (
-                  <div className="space-y-3">
-                    {caseControls.map((control: any) => (
-                      <div key={control.id} className="border rounded-md p-3 space-y-2">
-                        <div className="flex flex-col gap-2 lg:flex-row lg:items-start">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap"><span className="font-medium text-sm">{control.title}</span>{control.mandatory && <span className="text-[10px] rounded bg-amber-500/10 text-amber-700 dark:text-amber-300 px-2 py-0.5">Required control</span>}{control.applicability_check && <span className="text-[10px] rounded bg-blue-500/10 text-blue-700 dark:text-blue-300 px-2 py-0.5">Applicability check</span>}</div>
-                            {control.guidance && <p className="text-xs text-muted-foreground mt-1">{control.guidance}</p>}
-                            {control.evidence_hint && <p className="text-xs mt-1"><span className="font-medium">Evidence:</span> <span className="text-muted-foreground">{control.evidence_hint}</span></p>}
-                            {control.legal_reference && <p className="text-[11px] text-muted-foreground mt-1">Basis: {control.legal_reference}</p>}
-                            {control.source_url && <a href={control.source_url} target="_blank" rel="noreferrer" className="text-[11px] text-primary underline underline-offset-2 mt-1 inline-block">Official source / guidance</a>}
-                          </div>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 lg:w-[360px] shrink-0">
-                            <label className="text-[11px] text-muted-foreground">Applicability<select value={control.applicability} disabled={!canWorkAdvisory || savingControl === control.id} onChange={(e) => updateCaseControl(control.id, { applicability: e.target.value, status: e.target.value === "not_applicable" ? "not_applicable" : control.status === "not_applicable" ? "not_started" : control.status })} className="mt-1 w-full h-8 px-2 rounded border bg-background text-xs"><option value="not_assessed">Not assessed</option><option value="applicable">Applicable</option><option value="not_applicable">Not applicable</option><option value="needs_review">Needs review</option></select></label>
-                            <label className="text-[11px] text-muted-foreground">Control status<select value={control.status} disabled={!canWorkAdvisory || savingControl === control.id} onChange={(e) => updateCaseControl(control.id, { status: e.target.value })} className="mt-1 w-full h-8 px-2 rounded border bg-background text-xs">{["not_started","in_progress","evidence_received","verified","not_applicable","needs_clarification"].filter((status) => isAdmin || status !== "verified").map((status) => <option key={status} value={status}>{({not_started:"Not started",in_progress:"In progress",evidence_received:"Evidence received",verified:"Verified by Director/Admin",not_applicable:"Not applicable",needs_clarification:"Needs clarification"} as Record<string,string>)[status]}</option>)}</select></label>
-                          </div>
-                        </div>
-                        <label className="block text-[11px] text-muted-foreground">Evidence / assessment note<textarea value={control.evidence_note ?? ""} disabled={!canWorkAdvisory || savingControl === control.id} onChange={(e) => setCaseControls((items) => items.map((item) => item.id === control.id ? { ...item, evidence_note: e.target.value } : item))} onBlur={(e) => { if (e.target.value !== (control.evidence_note ?? "")) updateCaseControl(control.id, { evidence_note: e.target.value }); }} rows={2} placeholder="Record evidence received, why this applies/does not apply, source checked, or outstanding gap…" className="mt-1 w-full px-3 py-2 rounded-md border bg-background text-xs" /></label>
-                        {control.status === "verified" && <div className="text-[11px] text-emerald-700 dark:text-emerald-300">Verified by authorised reviewer{control.verified_at ? ` on ${formatDate(control.verified_at)}` : ""}.</div>}
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <div className="text-[11px] text-muted-foreground">Template source dates and legal applicability should be reviewed by an authorised professional before relying on a control as mandatory.</div>
               </div>
 
               <div className="border rounded-lg p-4 space-y-3">
