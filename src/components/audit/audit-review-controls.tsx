@@ -30,6 +30,7 @@ export function AuditReviewControls({ engagementId, staff }: { engagementId: str
   const [signoffs, setSignoffs] = useState<Signoff[]>([]);
   const [comments, setComments] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -39,9 +40,11 @@ export function AuditReviewControls({ engagementId, staff }: { engagementId: str
       .select("id, procedure_id, status, assigned_to, assigned_reviewer_id, pack_id, pack_version")
       .eq("engagement_id", engagementId).order("created_at");
     if (p.error) {
+      setLoadError(p.error.message || "Audit procedure tables could not be loaded.");
       toast.error(`Could not load procedures: ${p.error.message}`);
       setProcedures([]); setSignoffs([]); setLoading(false); return;
     }
+    setLoadError(null);
     const rows = (p.data ?? []) as Array<Procedure & { pack_id: string; pack_version: number }>;
     const definitionResults = await Promise.all(rows.map(async (row) => {
       const result = await db.from("audit_procedure_definitions")
@@ -99,7 +102,8 @@ export function AuditReviewControls({ engagementId, staff }: { engagementId: str
       <button className={btn} onClick={() => void load()} disabled={loading}><RefreshCw className="h-3.5 w-3.5" />Refresh</button>
     </div>
     <p className="text-sm text-muted-foreground">Assign a reviewer who is different from the preparer. Review decisions are recorded through a database function; direct status changes cannot substitute for a sign-off.</p>
-    {procedures.length === 0 && !loading && <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">Initialize the engagement procedure checklist before assigning reviewers.</div>}
+    {loadError && <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/5 p-3 space-y-1"><p className="font-medium text-sm">Review controls cannot connect to the audit database.</p><p className="text-sm">Confirm the Phase 1–3 migrations have been applied to this Supabase project, then refresh.</p><p className="text-xs text-muted-foreground">Database message: {loadError}</p></div>}
+    {procedures.length === 0 && !loading && !loadError && <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">Initialize the engagement procedure checklist before assigning reviewers.</div>}
     <div className="space-y-3">
       {procedures.map((procedure) => {
         const signoff = latestSignoff(procedure.id);
