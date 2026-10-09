@@ -149,42 +149,54 @@ export type Database = {
       }
       advisory_projects: {
         Row: {
+          case_number: number
           client_id: string
           closed_at: string | null
           closed_by: string | null
           closure_notes: string | null
           created_at: string
+          created_by: string | null
           description: string | null
           due_date: string | null
           id: string
+          invoice_id: string | null
+          service_type: string
           stage: string
           start_date: string | null
           status: Database["public"]["Enums"]["engagement_status"]
           title: string
         }
         Insert: {
+          case_number?: number
           client_id: string
           closed_at?: string | null
           closed_by?: string | null
           closure_notes?: string | null
           created_at?: string
+          created_by?: string | null
           description?: string | null
           due_date?: string | null
           id?: string
+          invoice_id?: string | null
+          service_type?: string
           stage?: string
           start_date?: string | null
           status?: Database["public"]["Enums"]["engagement_status"]
           title: string
         }
         Update: {
+          case_number?: number
           client_id?: string
           closed_at?: string | null
           closed_by?: string | null
           closure_notes?: string | null
           created_at?: string
+          created_by?: string | null
           description?: string | null
           due_date?: string | null
           id?: string
+          invoice_id?: string | null
+          service_type?: string
           stage?: string
           start_date?: string | null
           status?: Database["public"]["Enums"]["engagement_status"]
