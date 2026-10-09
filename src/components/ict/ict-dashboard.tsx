@@ -88,7 +88,7 @@ export function IctDashboard() {
         .eq("module", "ict").order("created_at", { ascending: false }),
       supabase.from("ict_tickets").select("id,ticket_number,title,priority,status,created_at").order("created_at", { ascending: false }),
       supabase.from("ict_assets").select("id", { count: "exact", head: true }),
-      supabase.from("invoices").select("id,status,total,amount_paid,service_line").eq("service_line", "ict"),
+      supabase.from("invoices").select("id,status,total,amount_paid,service_line").eq("service_line", "ICT"),
       supabase.from("clients").select("id", { count: "exact", head: true }),
     ]);
     if (projectsRes.error) toast.error(`ICT projects: ${projectsRes.error.message}`);
