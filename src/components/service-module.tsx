@@ -54,11 +54,13 @@ export function ServiceModulePage({
   moduleLabel,
   tagline,
   stages = DEFAULT_STAGES,
+  projectTemplates = [],
 }: {
   moduleKey: ServiceModuleKey;
   moduleLabel: string;
   tagline: string;
   stages?: { key: string; label: string }[];
+  projectTemplates?: { serviceType: string; label: string; description: string; milestones: { title: string; stage: string }[] }[];
 }) {
   const { isAdmin, user } = useAuth();
   const STAGES = stages;
@@ -125,10 +127,30 @@ export function ServiceModulePage({
     if (dialog.mode === "edit" && payload.status === "completed" && rows.find(r => r.id === id)?.status !== "completed" && !_inv) {
       toast.error("Use Close project in the project's close-out section — an invoice must be generated to complete it."); return;
     }
-    const op = dialog.mode === "new"
-      ? supabase.from("service_projects" as any).insert({ ...payload, module: moduleKey })
-      : supabase.from("service_projects" as any).update(payload).eq("id", id);
-    const { error } = await op;
+    if (dialog.mode === "new") {
+      const { data: created, error } = await (supabase.from("service_projects" as any)
+        .insert({ ...payload, module: moduleKey }) as any).select("id").single();
+      if (error) { toast.error(error.message); return; }
+      const selectedTemplate = projectTemplates.find(t => t.serviceType === payload.service_type);
+      if (selectedTemplate?.milestones.length) {
+        const milestoneRows = selectedTemplate.milestones.map((m) => ({
+          project_id: created.id,
+          title: m.title,
+          stage: m.stage,
+          done: false,
+          notes: `Generated from the ${selectedTemplate.label} project template.`,
+        }));
+        const { error: milestoneError } = await (supabase.from("service_milestones" as any) as any).insert(milestoneRows);
+        if (milestoneError) {
+          toast.error(`Project created, but template steps could not be added: ${milestoneError.message}`);
+          setDialog(null); load(); return;
+        }
+      }
+      toast.success(selectedTemplate?.milestones.length ? `Project created with ${selectedTemplate.milestones.length} template steps` : "Saved");
+      setDialog(null); load();
+      return;
+    }
+    const { error } = await supabase.from("service_projects" as any).update(payload).eq("id", id);
     if (error) toast.error(error.message);
     else { toast.success("Saved"); setDialog(null); load(); }
   }
@@ -337,7 +359,7 @@ export function ServiceModulePage({
           <p className="text-sm text-muted-foreground">{tagline}</p>
         </div>
         {tab === "projects" && (
-          <button onClick={() => setDialog({ mode: "new", data: { client_id: "", title: "", description: "", start_date: "", due_date: "", status: "not_started", stage: defaultStageKey } })} className="h-9 px-3 rounded-md bg-primary text-primary-foreground text-sm inline-flex items-center gap-2"><Plus className="h-4 w-4" /> New project</button>
+          <button onClick={() => setDialog({ mode: "new", data: { client_id: "", title: "", description: "", start_date: "", due_date: "", status: "not_started", stage: defaultStageKey, service_type: projectTemplates[0]?.serviceType ?? "general" } })} className="h-9 px-3 rounded-md bg-primary text-primary-foreground text-sm inline-flex items-center gap-2"><Plus className="h-4 w-4" /> New project</button>
         )}
       </div>
 
@@ -480,6 +502,18 @@ export function ServiceModulePage({
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setDialog(null)}>
           <div onClick={e => e.stopPropagation()} className="bg-card w-full max-w-md rounded-lg p-6 space-y-3">
             <div className="flex justify-between"><h2 className="text-lg font-semibold">{dialog.mode === "new" ? `New ${moduleLabel} project` : "Edit project"}</h2><button onClick={() => setDialog(null)}><X className="h-4 w-4" /></button></div>
+            {dialog.mode === "new" && projectTemplates.length > 0 && (
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">ICT project template</label>
+                <select value={dialog.data.service_type ?? projectTemplates[0].serviceType} onChange={e => {
+                  const template = projectTemplates.find(t => t.serviceType === e.target.value);
+                  setDialog({ ...dialog, data: { ...dialog.data, service_type: e.target.value, description: template?.description ?? dialog.data.description, title: dialog.data.title || template?.label || "" } });
+                }} className="w-full h-9 px-3 rounded-md border bg-background text-sm">
+                  {projectTemplates.map(t => <option key={t.serviceType} value={t.serviceType}>{t.label}</option>)}
+                </select>
+                <p className="text-xs text-muted-foreground">A starter checklist will be created automatically. You can edit the steps in the project workspace.</p>
+              </div>
+            )}
             <select value={dialog.data.client_id} onChange={e => setDialog({ ...dialog, data: { ...dialog.data, client_id: e.target.value } })} className="w-full h-9 px-3 rounded-md border bg-background text-sm">
               <option value="">Select client…</option>
               {clients.map(c => <option key={c.id} value={c.id}>{c.company_name}</option>)}
