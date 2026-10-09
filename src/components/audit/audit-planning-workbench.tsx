@@ -54,6 +54,7 @@ export function AuditPlanningWorkbench({ engagementId, workpapers }: { engagemen
   const [evidenceId, setEvidenceId] = useState("");
   const [linkedRiskId, setLinkedRiskId] = useState("");
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
@@ -66,7 +67,9 @@ export function AuditPlanningWorkbench({ engagementId, workpapers }: { engagemen
     ]);
     const firstError = riskRes.error || procRes.error || defRes.error;
     if (firstError) {
-      toast.error(`Could not load audit planning data: ${firstError.message}`);
+      const message = firstError.message || "The audit planning tables could not be loaded.";
+      setLoadError(message);
+      toast.error(`Could not load audit planning data: ${message}`);
       setLoading(false);
       return;
     }
@@ -75,6 +78,7 @@ export function AuditPlanningWorkbench({ engagementId, workpapers }: { engagemen
       ? await db.from("audit_procedure_results").select("*").in("engagement_procedure_id", procedureIds).order("prepared_at", { ascending: false })
       : { data: [], error: null };
     if (resultRes.error) {
+      setLoadError(resultRes.error.message || "Procedure results could not be loaded.");
       toast.error(`Could not load procedure results: ${resultRes.error.message}`);
       setLoading(false);
       return;
@@ -92,6 +96,7 @@ export function AuditPlanningWorkbench({ engagementId, workpapers }: { engagemen
     }
     setRisks((riskRes.data ?? []) as Risk[]);
     setProcedures((procRes.data ?? []).map((p: any) => ({ ...p, definition: definitions.get(p.procedure_id), latestResult: latestResults.get(p.id) })));
+    setLoadError(null);
     setLoading(false);
   }, [engagementId]);
 
@@ -201,6 +206,11 @@ export function AuditPlanningWorkbench({ engagementId, workpapers }: { engagemen
   const activeProcedure = procedures.find((p) => p.id === activeProcedureId);
 
   return <div className="space-y-4">
+    {loadError && <div role="alert" className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 space-y-1">
+      <h3 className="font-semibold text-sm">Audit database setup is incomplete</h3>
+      <p className="text-sm">The risk register and procedure checklist could not load. Apply the three audit migrations in order (foundation, risk/procedure links, then review/sign-off), then refresh this page.</p>
+      <p className="text-xs text-muted-foreground">Database message: {loadError}</p>
+    </div>}
     <section className="rounded-lg border bg-card p-4 space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2"><ShieldAlert className="h-5 w-5 text-primary" /><h2 className="font-semibold">Audit risk register</h2><span className="rounded bg-muted px-2 py-0.5 text-xs">{risks.length}</span></div>
