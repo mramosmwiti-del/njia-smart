@@ -9,6 +9,7 @@ import { formatDate, STATUS_COLORS, statusLabel } from "@/lib/format";
 import { ClientAssignments } from "@/components/client-assignments";
 import { CompletionInvoiceDialog, LinkedInvoice } from "@/components/completion-invoice-dialog";
 import { useAuth } from "@/lib/auth";
+import { serviceLineFor } from "@/lib/service-lines";
 
 export type ServiceModuleKey =
   | "ict"
@@ -104,7 +105,7 @@ export function ServiceModulePage({
   const moduleClientIds = Array.from(new Set(rows.map(r => r.client_id).filter(Boolean)));
 
   async function loadBilling() {
-    const { data, error } = await supabase.from("invoices").select("*, clients(company_name)").eq("service_line", moduleKey).order("issue_date", { ascending: false });
+    const { data, error } = await supabase.from("invoices").select("*, clients(company_name)").eq("service_line", serviceLineFor(moduleKey)).order("issue_date", { ascending: false });
     if (error) toast.error(error.message); else setInvoices(data ?? []);
   }
   async function loadDocuments() {
