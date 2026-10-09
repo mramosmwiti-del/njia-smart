@@ -155,6 +155,10 @@ function AuditDetail() {
   return (
     <div className="space-y-4">
       <Link to="/audit" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1"><ArrowLeft className="h-3 w-3" /> Back to audits</Link>
+      <section data-audit-modular-diagnostic="20261009" className="rounded-lg border border-primary/40 bg-primary/5 p-4 space-y-1">
+        <div className="flex items-center gap-2 font-semibold text-sm"><span className="inline-block h-2 w-2 rounded-full bg-primary" /> Modular audit workspace is loaded</div>
+        <p className="text-sm text-muted-foreground">Diagnostic marker: NJIA-AUDIT-MODULAR-CHECK-20261009. The risk register and independent review panels should appear immediately below client assignments.</p>
+      </section>
       <div className="bg-card border rounded-lg p-5">
         <div className="flex flex-wrap justify-between gap-3">
           <div>
