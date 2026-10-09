@@ -110,11 +110,9 @@ function AccountsPage() {
     if (numErr) return toast.error(numErr.message);
     const { data: { user } } = await supabase.auth.getUser();
     const { initial_amount, initial_description, ...invForm } = form;
-    // The database service_module_type enum stores ICT as the lowercase key.
-    // Keep the human-friendly label in the form, but normalize before insert.
-    const serviceLine = invForm.service_line === "ICT" ? "ict" : invForm.service_line;
+    // service_line is stored as the display label; the database normalizes it too.
     const { data, error } = await supabase.from("invoices")
-      .insert({ ...invForm, service_line: serviceLine, invoice_number: numRes, created_by: user?.id })
+      .insert({ ...invForm, invoice_number: numRes, created_by: user?.id })
       .select().single();
     if (error) return toast.error(error.message);
     if (Number(initial_amount) > 0) {
