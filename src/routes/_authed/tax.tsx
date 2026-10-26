@@ -846,11 +846,11 @@ function TaxPage() {
 
           <div className="bg-card border rounded-lg max-h-[70vh] overflow-auto">
             <table className="w-full min-w-[1100px] table-fixed text-sm">
-              <thead className="bg-muted/40 text-left text-xs text-muted-foreground border-b">
+              <thead className="bg-muted text-left text-xs text-muted-foreground border-b">
                 <tr>
-                  <th className="sticky top-0 left-0 z-40 w-[160px] bg-muted/40 py-2 px-3 whitespace-normal break-words">Client</th>
-                  <th className="sticky top-0 z-30 w-[190px] bg-muted/40 py-2 px-3 whitespace-normal break-words">Obligation</th>
-                  {annualMonths.map(month => <th key={month.key} className="sticky top-0 z-30 w-[76px] bg-muted/40 py-2 px-1 text-center whitespace-normal break-words">{month.label}</th>)}
+                  <th className="sticky top-0 left-0 z-40 w-[160px] bg-muted py-2 px-3 whitespace-normal break-words">Client</th>
+                  <th className="sticky top-0 z-30 w-[190px] bg-muted py-2 px-3 whitespace-normal break-words">Obligation</th>
+                  {annualMonths.map(month => <th key={month.key} className="sticky top-0 z-30 w-[76px] bg-muted py-2 px-1 text-center whitespace-normal break-words">{month.label}</th>)}
                 </tr>
               </thead>
               <tbody>
