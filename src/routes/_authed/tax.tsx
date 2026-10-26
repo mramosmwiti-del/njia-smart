@@ -299,12 +299,13 @@ function TaxPage() {
     [assigneeScopedReportRows, reportFilter]
   );
 
-  // Annual view: one row per client and tax obligation, with each calendar month
-  // showing the filing status of the return whose due date falls in that month.
+  // Annual view: one row per client, with every applicable obligation listed
+  // and each calendar month showing the status for each obligation in the same order.
   const annualFilingRows = useMemo(() => {
-    const rows: { key: string; client: any; pol: any; months: Map<string, any[]> }[] = [];
+    const rows: { key: string; client: any; obligations: { key: string; label: string; months: Map<string, any[]> }[] }[] = [];
     const scopedPolicies = annualType ? activePolicies.filter(p => p.tax_type === annualType) : activePolicies;
     filteredClients.forEach(client => {
+      const obligations: { key: string; label: string; months: Map<string, any[]> }[] = [];
       scopedPolicies.forEach(pol => {
         if (!obligationMap.get(`${client.id}:${pol.tax_type}`)) return;
         const monthRows = new Map<string, any[]>();
@@ -314,8 +315,9 @@ function TaxPage() {
           if (!monthRows.has(monthKey)) monthRows.set(monthKey, []);
           monthRows.get(monthKey)!.push(record);
         });
-        rows.push({ key: `${client.id}:${pol.tax_type}`, client, pol, months: monthRows });
+        obligations.push({ key: `${client.id}:${pol.tax_type}`, label: pol.label, months: monthRows });
       });
+      if (obligations.length) rows.push({ key: client.id, client, obligations });
     });
     return rows;
   }, [filteredClients, activePolicies, annualType, annualYear, obligationMap, returnsByKey]);
@@ -854,27 +856,39 @@ function TaxPage() {
               <tbody>
                 {annualFilingRows.length === 0 && <tr><td colSpan={14} className="py-8 text-center text-muted-foreground">No client obligations match this year and filter.</td></tr>}
                 {annualFilingRows.map(row => (
-                  <tr key={row.key} className="border-b last:border-0 hover:bg-muted/20">
+                  <tr key={row.key} className="border-b last:border-0 hover:bg-muted/20 align-top">
                     <td className="py-2 px-3 font-medium sticky left-0 bg-card">{row.client.company_name}</td>
-                    <td className="py-2 px-3 text-xs">{row.pol.label}</td>
-                    {annualMonths.map(month => {
-                      const status = annualMonthStatus(row.months.get(month.key));
-                      return (
-                        <td key={month.key} className="py-2 px-3 text-center">
-                          {status ? (
-                            <span className={`inline-flex whitespace-nowrap items-center gap-1 rounded-full px-2 py-0.5 text-[11px] ${status === "Filed" ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200" : "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-100"}`}>
-                              {status === "Filed" && <Check className="h-3 w-3" />}{status}
-                            </span>
-                          ) : <span className="text-muted-foreground">—</span>}
-                        </td>
-                      );
-                    })}
+                    <td className="py-2 px-3 text-xs min-w-[180px]">
+                      <div className="space-y-1.5">
+                        {row.obligations.map(obligation => (
+                          <div key={obligation.key} className="min-h-6 flex items-center font-medium">{obligation.label}</div>
+                        ))}
+                      </div>
+                    </td>
+                    {annualMonths.map(month => (
+                      <td key={month.key} className="py-2 px-3 text-center align-top">
+                        <div className="space-y-1.5">
+                          {row.obligations.map(obligation => {
+                            const status = annualMonthStatus(obligation.months.get(month.key));
+                            return (
+                              <div key={obligation.key} className="min-h-6 flex items-center justify-center">
+                                {status ? (
+                                  <span className={`inline-flex whitespace-nowrap items-center gap-1 rounded-full px-2 py-0.5 text-[11px] ${status === "Filed" ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200" : "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-100"}`}>
+                                    {status === "Filed" && <Check className="h-3 w-3" />}{status}
+                                  </span>
+                                ) : <span className="text-muted-foreground">—</span>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </td>
+                    ))}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          <p className="text-xs text-muted-foreground">Each row represents one client and one tax obligation. Monthly status is based on filing records with a due date in the selected calendar year; months without a filing record are shown as —.</p>
+          <p className="text-xs text-muted-foreground">Each row represents one client. All applicable obligations are listed together, and monthly statuses follow the same obligation order; months without a filing record are shown as —.</p>
         </div>
       )}
 
