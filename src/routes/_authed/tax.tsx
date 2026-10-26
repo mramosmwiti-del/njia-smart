@@ -844,37 +844,37 @@ function TaxPage() {
             <input placeholder="Filter clients…" value={clientFilter} onChange={e => setClientFilter(e.target.value)} className="h-9 w-64 px-3 rounded-md border bg-background text-sm" />
           </div>
 
-          <div className="bg-card border rounded-lg overflow-x-auto">
-            <table className="w-full min-w-[1100px] text-sm">
+          <div className="bg-card border rounded-lg max-h-[70vh] overflow-auto">
+            <table className="w-full min-w-[1100px] table-fixed text-sm">
               <thead className="bg-muted/40 text-left text-xs text-muted-foreground border-b">
                 <tr>
-                  <th className="py-2 px-3 sticky left-0 bg-muted/40">Client</th>
-                  <th className="py-2 px-3">Obligation</th>
-                  {annualMonths.map(month => <th key={month.key} className="py-2 px-3 text-center">{month.label}</th>)}
+                  <th className="sticky top-0 left-0 z-40 w-[160px] bg-muted/40 py-2 px-3 whitespace-normal break-words">Client</th>
+                  <th className="sticky top-0 z-30 w-[190px] bg-muted/40 py-2 px-3 whitespace-normal break-words">Obligation</th>
+                  {annualMonths.map(month => <th key={month.key} className="sticky top-0 z-30 w-[76px] bg-muted/40 py-2 px-1 text-center whitespace-normal break-words">{month.label}</th>)}
                 </tr>
               </thead>
               <tbody>
                 {annualFilingRows.length === 0 && <tr><td colSpan={14} className="py-8 text-center text-muted-foreground">No client obligations match this year and filter.</td></tr>}
                 {annualFilingRows.map(row => (
                   <tr key={row.key} className="border-b last:border-0 hover:bg-muted/20 align-top">
-                    <td className="py-2 px-3 font-medium sticky left-0 bg-card">{row.client.company_name}</td>
-                    <td className="py-2 px-3 text-xs min-w-[180px]">
+                    <td className="py-2 px-3 font-medium sticky left-0 z-10 bg-card whitespace-normal break-words align-top">{row.client.company_name}</td>
+                    <td className="py-2 px-3 text-xs align-top">
                       <div className="space-y-1.5">
                         {row.obligations.map(obligation => (
-                          <div key={obligation.key} className="min-h-6 flex items-center font-medium">{obligation.label}</div>
+                          <div key={obligation.key} className="min-h-6 whitespace-normal break-words font-medium">{obligation.label}</div>
                         ))}
                       </div>
                     </td>
                     {annualMonths.map(month => (
-                      <td key={month.key} className="py-2 px-3 text-center align-top">
+                      <td key={month.key} className="py-2 px-1 text-center align-top">
                         <div className="space-y-1.5">
                           {row.obligations.map(obligation => {
                             const status = annualMonthStatus(obligation.months.get(month.key));
                             return (
                               <div key={obligation.key} className="min-h-6 flex items-center justify-center">
                                 {status ? (
-                                  <span className={`inline-flex whitespace-nowrap items-center gap-1 rounded-full px-2 py-0.5 text-[11px] ${status === "Filed" ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200" : "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-100"}`}>
-                                    {status === "Filed" && <Check className="h-3 w-3" />}{status}
+                                  <span className={`inline-flex max-w-full whitespace-normal break-words items-center justify-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] leading-tight ${status === "Filed" ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200" : "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-100"}`}>
+                                    {status === "Filed" && <Check className="h-3 w-3 shrink-0" />}{status}
                                   </span>
                                 ) : <span className="text-muted-foreground">—</span>}
                               </div>
