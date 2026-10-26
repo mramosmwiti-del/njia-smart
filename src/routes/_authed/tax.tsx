@@ -7,7 +7,7 @@ import { AlertTriangle, Clock, UserX, LayoutGrid, Check, ChevronDown, ChevronUp,
 import { useAuth } from "@/lib/auth";
 import { CompletionInvoiceDialog } from "@/components/completion-invoice-dialog";
 import { daysUntil, periodsOverdue, formatDate, formatDateTime } from "@/lib/format";
-import { filingOpenDate, isFilingOpen } from "@/lib/tax-period";
+import { filingOpenDate, isFilingOpen, todayNairobi } from "@/lib/tax-period";
 import { TaxClientChecklist, type ChecklistClientRow } from "@/components/tax-client-checklist";
 import { TaxFilingInvoiceDialog } from "@/components/tax-filing-invoice-dialog";
 
@@ -67,6 +67,7 @@ function TaxPage() {
   const [clearingRecords, setClearingRecords] = useState(false);
   const [expandedType, setExpandedType] = useState<string | null>(null);
   const attemptedSchedule = useRef<Set<string>>(new Set());
+  const ensuredPeriodsMonth = useRef<string | null>(null);
   const [scheduleFailed, setScheduleFailed] = useState<Set<string>>(new Set());
 
   async function load(silent = false) {
@@ -111,11 +112,26 @@ function TaxPage() {
   useLiveRefresh(["tax_returns", "tax_return_assignees", "client_tax_obligations", "documents", "invoices"], () => load(true));
 
   const activePolicies = useMemo(() => policies.filter(p => p.active), [policies]);
+  const currentFilingMonth = todayNairobi().slice(0, 7);
 
-  // An active obligation with no filing period at all would sit on "Scheduling…" forever.
-  // Ask the database to create its first open period (it only does so when none exists).
+  // Ensure every monthly filing period through the current month has its own record,
+  // even when an earlier period remains unfiled. The database fills only missing periods.
   useEffect(() => {
     if (loading || !canCreate("tax")) return;
+    const month = todayNairobi().slice(0, 7);
+    if (ensuredPeriodsMonth.current !== month) {
+      ensuredPeriodsMonth.current = month;
+      (async () => {
+        const { error } = await supabase.rpc("ensure_current_tax_filing_periods" as any);
+        if (error) {
+          ensuredPeriodsMonth.current = null;
+          toast.error(`Unable to prepare current filing periods: ${error.message}`);
+          return;
+        }
+        await load(true);
+      })();
+      return;
+    }
     const activeTypes = new Set(activePolicies.map(p => p.tax_type));
     const have = new Set(returns.map((r: any) => `${r.client_id}:${r.return_type}`));
     const missing = obligations.filter(o => {
@@ -195,11 +211,15 @@ function TaxPage() {
     return m;
   }, [returns]);
 
-  // The row that matters right now for a client+type: the earliest-due open
-  // filing if one exists, otherwise the most recent filed one.
+  // Prefer this month's filing period for the checklist. Older unfiled periods
+  // remain visible in Filing Record without blocking work in the current month.
   function currentReturn(clientId: string, taxType: string) {
     const list = returnsByKey.get(`${clientId}:${taxType}`) ?? [];
     if (list.length === 0) return null;
+    const currentMonth = list
+      .filter(r => (r.due_date ?? "").slice(0, 7) === currentFilingMonth)
+      .sort((a, b) => (a.due_date ?? "").localeCompare(b.due_date ?? ""));
+    if (currentMonth.length) return currentMonth[0];
     const open = list.filter(r => r.status !== "filed").sort((a, b) => (a.due_date ?? "").localeCompare(b.due_date ?? ""));
     if (open.length) return open[0];
     return [...list].sort((a, b) => (b.due_date ?? "").localeCompare(a.due_date ?? ""))[0];
@@ -247,12 +267,14 @@ function TaxPage() {
       scopedPolicies.forEach(pol => {
         if (!obligationMap.get(`${c.id}:${pol.tax_type}`)) return;
         const list = returnsByKey.get(`${c.id}:${pol.tax_type}`) ?? [];
-        // The period still to be filed (or nothing scheduled yet)...
-        if (list.length === 0 || list.some(r => r.status !== "filed")) {
-          const cur = currentReturn(c.id, pol.tax_type);
-          rows.push({ key: cur?.id ?? `${c.id}:${pol.tax_type}`, client: c, pol, cur, filed: false });
+        // Every open period remains visible as Not filed, including overdue periods,
+        // while each filed period remains as historical evidence.
+        if (list.length === 0) {
+          rows.push({ key: `${c.id}:${pol.tax_type}`, client: c, pol, cur: null, filed: false });
         }
-        // ...and every period already filed stays on record with the date it was filed.
+        list.filter(r => r.status !== "filed")
+          .sort((x, y) => (x.due_date ?? "").localeCompare(y.due_date ?? ""))
+          .forEach(r => rows.push({ key: r.id, client: c, pol, cur: r, filed: false }));
         list.filter(r => r.status === "filed")
           .sort((x, y) => (y.filed_at ?? y.due_date ?? "").localeCompare(x.filed_at ?? x.due_date ?? ""))
           .forEach(r => rows.push({ key: r.id, client: c, pol, cur: r, filed: true }));
