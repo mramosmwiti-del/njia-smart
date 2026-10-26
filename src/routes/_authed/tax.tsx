@@ -8,6 +8,8 @@ import { useAuth } from "@/lib/auth";
 import { CompletionInvoiceDialog } from "@/components/completion-invoice-dialog";
 import { daysUntil, periodsOverdue, formatDate, formatDateTime } from "@/lib/format";
 import { filingOpenDate, isFilingOpen } from "@/lib/tax-period";
+import { TaxClientChecklist, type ChecklistClientRow } from "@/components/tax-client-checklist";
+import { TaxFilingInvoiceDialog } from "@/components/tax-filing-invoice-dialog";
 
 export const Route = createFileRoute("/_authed/tax")({
   head: () => ({
@@ -54,6 +56,7 @@ function TaxPage() {
   const [loading, setLoading] = useState(true);
   const [busyCell, setBusyCell] = useState<string | null>(null);
   const [invoiceFor, setInvoiceFor] = useState<{ id: string; clientId: string; clientName?: string | null; description: string; needsReceipt: boolean } | null>(null);
+  const [batchFor, setBatchFor] = useState<{ clientId: string; returnIds: string[] } | null>(null);
   const [clientFilter, setClientFilter] = useState("");
   const [accFilter, setAccFilter] = useState<"all" | "overdue" | "duesoon" | "unassigned">("all");
   const [checklistType, setChecklistType] = useState<string>(ALL_TYPES);
@@ -498,80 +501,22 @@ function TaxPage() {
     else { toast.success(filed ? "Marked filed — next period scheduled" : "Reopened"); load(true); }
   }
 
-  // The checklist only lists clients who are obligated for that tax type —
-  // each row is the client's current filing. Obligations are added from the
+  // Checklist: ONE entry per client listing every obligation they hold (narrowed
+  // to a single tax type when one is chosen). Obligations are added from the
   // client's own Tax tab, so un-obligated clients are never listed here.
-  function obligatedRows(pol: any) {
-    return displayClients.filter(c => obligationMap.get(`${c.id}:${pol.tax_type}`));
-  }
+  const checklistRows: ChecklistClientRow[] = displayClients
+    .map(c => ({
+      client: c,
+      items: (checklistType === ALL_TYPES ? activePolicies : activePolicies.filter(p => p.tax_type === checklistType))
+        .filter(pol => obligationMap.get(`${c.id}:${pol.tax_type}`))
+        .map(pol => ({ pol, cur: currentReturn(c.id, pol.tax_type) })),
+    }))
+    .filter(r => r.items.length > 0);
 
-  function renderChecklistTable(pol: any, rows: any[] = obligatedRows(pol)) {
-    return (
-      <div key={pol.tax_type} className="bg-card border rounded-lg overflow-hidden">
-        <div className="px-3 py-2 border-b text-xs text-muted-foreground flex items-center justify-between gap-3">
-          <span>
-            <span className="font-medium text-foreground">{pol.label}</span> — {rows.length} obligated client{rows.length === 1 ? "" : "s"}. Tick "Filed" once submitted to auto-renew the next period.
-          </span>
-          <span className="capitalize whitespace-nowrap">{pol.cadence} · due day {pol.due_day}</span>
-        </div>
-        <table className="w-full text-sm">
-          <thead className="bg-muted/40 text-left text-xs text-muted-foreground border-b">
-            <tr><th className="py-2 px-3">Client</th><th className="py-2 px-3">Current filing</th><th className="py-2 px-3 w-28">Filed?</th><th className="py-2 px-3 w-24"></th></tr>
-          </thead>
-          <tbody>
-            {rows.length === 0 && <tr><td colSpan={4} className="py-8 text-center text-muted-foreground">No obligated clients{clientFilter || accFilter !== "all" ? " match your filters" : ` for ${pol.label} yet — add the obligation from the client's Tax tab`}.</td></tr>}
-            {rows.map(c => {
-              const key = `${c.id}:${pol.tax_type}`;
-              const cur = currentReturn(c.id, pol.tax_type);
-              const closed = !!cur && cur.status === "filed" && !isAdmin;
-              const waiting = !!cur && cur.status !== "filed" && !isFilingOpen(cur.due_date, pol.cadence);
-              return (
-                <tr key={c.id} className="border-b last:border-0 hover:bg-muted/20">
-                  <td className="py-1.5 px-3 font-medium">{c.company_name}</td>
-                  <td className="py-1.5 px-3">
-                    {!cur ? (
-                      renderMissing(c.id, pol.tax_type)
-                    ) : (
-                      <Link to="/tax/$type" params={{ type: pol.tax_type }} search={{ client: c.id }} className="inline-block hover:opacity-80">
-                        <ChecklistCell row={cur} cadence={pol.cadence} assigneeName={cur.assigned_to ? staffMap.get(cur.assigned_to) : null} />
-                      </Link>
-                    )}
-                  </td>
-                  <td className="py-1.5 px-3">
-                    {cur && (
-                      <label
-                        className={`inline-flex items-center gap-1.5 text-xs ${closed || waiting ? "cursor-not-allowed opacity-70" : "cursor-pointer"}`}
-                        title={cur.status === "filed" ? (isAdmin ? "Filed — uncheck to reopen (Director/Admin)" : "Filed and closed") : waiting ? `Opens for filing on ${formatDate(filingOpenDate(cur.due_date, pol.cadence))}` : "Check off once filed"}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={cur.status === "filed"}
-                          disabled={busyCell === cur.id || closed || waiting}
-                          onChange={e => markFiled(cur.id, e.target.checked)}
-                        />
-                        {cur.status === "filed" ? (closed ? "Filed · closed" : "Filed") : waiting ? `Opens ${formatDate(filingOpenDate(cur.due_date, pol.cadence))}` : "Mark filed"}
-                      </label>
-                    )}
-                  </td>
-                  <td className="py-1.5 px-3 text-right">
-                    {isAdmin && (
-                      <button
-                        type="button"
-                        disabled={busyCell === key}
-                        onClick={() => { if (confirm(`Stop the ${pol.label} obligation for ${c.company_name}? Open filings stay, but nothing new is scheduled.`)) toggleObligation(c.id, pol.tax_type, false); }}
-                        className="text-[11px] text-muted-foreground hover:text-destructive"
-                      >
-                        Stop
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    );
+  function stopObligation(clientId: string, pol: any, clientName: string) {
+    if (confirm(`Stop the ${pol.label} obligation for ${clientName}? Open filings stay, but nothing new is scheduled.`)) {
+      toggleObligation(clientId, pol.tax_type, false);
+    }
   }
 
   return (
@@ -682,26 +627,20 @@ function TaxPage() {
 
           {activePolicies.length === 0 ? (
             <p className="text-sm text-muted-foreground p-4">No active tax policies yet. Ask an admin to configure one under Settings.</p>
-          ) : checklistType === ALL_TYPES ? (
-            (() => {
-              const groups = activePolicies
-                .map(pol => ({ pol, rows: obligatedRows(pol) }))
-                .filter(g => g.rows.length > 0);
-              return groups.length === 0 ? (
-                <p className="text-sm text-muted-foreground p-4">
-                  No obligated clients{clientFilter || accFilter !== "all" ? " match your filters" : " yet — add tax obligations from a client's Tax tab"}.
-                </p>
-              ) : (
-                <div className="space-y-4">
-                  {groups.map(g => renderChecklistTable(g.pol, g.rows))}
-                </div>
-              );
-            })()
           ) : (
-            (() => {
-              const pol = activePolicies.find(p => p.tax_type === checklistType);
-              return pol ? renderChecklistTable(pol) : null;
-            })()
+            <TaxClientChecklist
+              rows={checklistRows}
+              isAdmin={isAdmin}
+              busyId={busyCell}
+              emptyHint={`No obligated clients${clientFilter || accFilter !== "all" || checklistType !== ALL_TYPES ? " match your filters" : " yet — add tax obligations from a client's Tax tab"}.`}
+              renderCell={(cur, pol) => (
+                <ChecklistCell row={cur} cadence={pol.cadence} assigneeName={cur.assigned_to ? staffMap.get(cur.assigned_to) : null} />
+              )}
+              renderMissing={renderMissing}
+              onFileSelected={(clientId, returnIds) => setBatchFor({ clientId, returnIds })}
+              onReopen={id => markFiled(id, false)}
+              onStop={stopObligation}
+            />
           )}
         </div>
       )}
@@ -827,6 +766,26 @@ function TaxPage() {
         </div>
       )}
 
+      {batchFor && (
+        <TaxFilingInvoiceDialog
+          open
+          onOpenChange={o => { if (!o) setBatchFor(null); }}
+          clientId={batchFor.clientId}
+          clientName={clients.find((x: any) => x.id === batchFor.clientId)?.company_name}
+          items={batchFor.returnIds
+            .map(id => returns.find((r: any) => r.id === id))
+            .filter((r: any) => r && r.status !== "filed")
+            .map((r: any) => ({
+              returnId: r.id,
+              label: policies.find((x: any) => x.tax_type === r.return_type)?.label ?? r.return_type,
+              periodLabel: `period ending ${formatDate(r.period_end)}`,
+              hasReceipt: !!documentsByReturn.get(r.id)?.length,
+              invoiceId: r.invoice_id,
+            }))}
+          onUploadReceipt={(returnId, clientId, file) => uploadReceipt(returnId, clientId, file)}
+          onDone={() => load(true)}
+        />
+      )}
       {invoiceFor && (
         <CompletionInvoiceDialog
           open
