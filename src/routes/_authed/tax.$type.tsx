@@ -8,6 +8,7 @@ import { TaxAssigneeSelect } from "@/components/tax-assignee-select";
 import { TaxAssignees } from "@/components/tax-assignees";
 import { CompletionInvoiceDialog } from "@/components/completion-invoice-dialog";
 import { useAuth } from "@/lib/auth";
+import { filingOpenDate, isFilingOpen } from "@/lib/tax-period";
 
 export const Route = createFileRoute("/_authed/tax/$type")({
   validateSearch: (s: Record<string, unknown>) => ({
@@ -78,6 +79,16 @@ function TaxTypePage() {
   // invoice (and stored the receipt), so neither check repeats.
   async function setStatus(id: string, status: string, skipInvoice = false) {
     const row = rows.find(r => r.id === id);
+    // A filed period is closed: only Director/Admin can reopen it, and a period
+    // can't be filed before its own filing window opens.
+    if (row?.status === "filed" && status !== "filed" && !isAdmin) {
+      toast.error("This period is already filed and closed. Only a Director or Admin can reopen it.");
+      return;
+    }
+    if (row && row.status !== "filed" && status === "filed" && !isFilingOpen(row.due_date, policy?.cadence)) {
+      toast.error(`This period opens for filing on ${formatDate(filingOpenDate(row.due_date, policy?.cadence))}.`);
+      return;
+    }
     if (!skipInvoice && status === "filed" && row?.status !== "filed") {
       // Mandatory prompt first: invoice amount, plus the filing receipt if none
       // is attached yet. Submitting it registers the return as filed.
@@ -146,6 +157,14 @@ function TaxTypePage() {
   async function saveEdit(skipInvoice = false) {
     const { id, clients: _c, assignee: _a, invoice_id: _inv, ...payload } = editing;
     const before = rows.find(r => r.id === id);
+    if (before?.status === "filed" && payload.status !== "filed" && !isAdmin) {
+      toast.error("This period is already filed and closed. Only a Director or Admin can reopen it.");
+      return;
+    }
+    if (before && before.status !== "filed" && payload.status === "filed" && !isFilingOpen(before.due_date, policy?.cadence)) {
+      toast.error(`This period opens for filing on ${formatDate(filingOpenDate(before.due_date, policy?.cadence))}.`);
+      return;
+    }
     if (!skipInvoice && payload.status === "filed" && before?.status !== "filed") {
       if (!before?.invoice_id) {
         setInvoiceFor({
@@ -241,6 +260,8 @@ function TaxTypePage() {
               {filtered.map(r => {
                 const d = daysUntil(r.due_date);
                 const over = periodsOverdue(r.due_date, cadence);
+                const closed = r.status === "filed" && !isAdmin;
+                const waiting = r.status !== "filed" && !isFilingOpen(r.due_date, cadence);
                 return (
                   <tr key={r.id} className="border-b last:border-0 hover:bg-muted/30">
                     <td className="py-2 px-3 font-medium">{r.clients?.company_name}</td>
@@ -251,16 +272,21 @@ function TaxTypePage() {
                       {over < 1 && d !== null && d >= 0 && d <= 3 && r.status !== "filed" && <span className="ml-2 text-xs text-accent">in {d}d</span>}
                     </td>
                     <td>
-                      <label className="inline-flex items-center gap-2 cursor-pointer" title={r.status === "filed" ? "Filed — uncheck to reopen" : "Check off once filed"}>
+                      <label
+                        className={`inline-flex items-center gap-2 ${closed || waiting ? "cursor-not-allowed opacity-70" : "cursor-pointer"}`}
+                        title={r.status === "filed" ? (isAdmin ? "Filed — uncheck to reopen (Director/Admin)" : "Filed and closed") : waiting ? `Opens for filing on ${formatDate(filingOpenDate(r.due_date, cadence))}` : "Check off once filed"}
+                      >
                         <input
                           type="checkbox"
                           checked={r.status === "filed"}
+                          disabled={closed || waiting}
                           onChange={e => setStatus(r.id, e.target.checked ? "filed" : "pending")}
                         />
                         <span className={`h-6 px-2 inline-flex items-center rounded text-xs border bg-background capitalize ${STATUS_COLORS[r.status]}`}>
                           {r.status.replace(/_/g, " ")}
                         </span>
                       </label>
+                      {waiting && <span className="block mt-1 text-[10px] text-muted-foreground">Waiting — opens {formatDate(filingOpenDate(r.due_date, cadence))}</span>}
                       {r.status !== "filed" && (
                         <button
                           onClick={() => setStatus(r.id, r.status === "in_progress" ? "pending" : "in_progress")}
@@ -336,7 +362,7 @@ function TaxTypePage() {
             <div className="flex justify-between"><h2 className="text-lg font-semibold">Edit return</h2><button onClick={() => setEditing(null)}><X className="h-4 w-4" /></button></div>
             <div>
               <label className="text-xs font-medium">Status</label>
-              <select value={editing.status} onChange={e => setEditing({ ...editing, status: e.target.value })} className="mt-1 w-full h-9 px-3 rounded-md border bg-background text-sm capitalize">
+              <select value={editing.status} disabled={rows.find(r => r.id === editing.id)?.status === "filed" && !isAdmin} onChange={e => setEditing({ ...editing, status: e.target.value })} className="mt-1 w-full h-9 px-3 rounded-md border bg-background text-sm capitalize disabled:opacity-60">
                 {STATUSES.map(s => <option key={s} value={s}>{s.replace(/_/g, " ")}</option>)}
               </select>
               {editing.filed_at && <p className="mt-1 text-[11px] text-muted-foreground">Filed {formatDateTime(editing.filed_at)}</p>}
@@ -350,10 +376,10 @@ function TaxTypePage() {
               {editing.assigned_to && editing.assigned_at && <p className="mt-1 text-[11px] text-muted-foreground">Assigned {formatDateTime(editing.assigned_at)}</p>}
             </div>
             <div className="grid grid-cols-2 gap-2">
-              <div><label className="text-xs font-medium">Period start</label><input type="date" value={editing.period_start ?? ""} onChange={e => setEditing({ ...editing, period_start: e.target.value || null })} className="mt-1 w-full h-9 px-3 rounded-md border bg-background text-sm" /></div>
-              <div><label className="text-xs font-medium">Period end</label><input type="date" value={editing.period_end ?? ""} onChange={e => setEditing({ ...editing, period_end: e.target.value || null })} className="mt-1 w-full h-9 px-3 rounded-md border bg-background text-sm" /></div>
+              <div><label className="text-xs font-medium">Period start</label><input type="date" disabled={rows.find(r => r.id === editing.id)?.status === "filed"} value={editing.period_start ?? ""} onChange={e => setEditing({ ...editing, period_start: e.target.value || null })} className="mt-1 w-full h-9 px-3 rounded-md border bg-background text-sm" /></div>
+              <div><label className="text-xs font-medium">Period end</label><input type="date" disabled={rows.find(r => r.id === editing.id)?.status === "filed"} value={editing.period_end ?? ""} onChange={e => setEditing({ ...editing, period_end: e.target.value || null })} className="mt-1 w-full h-9 px-3 rounded-md border bg-background text-sm" /></div>
             </div>
-            <div><label className="text-xs font-medium">Due date</label><input type="date" value={editing.due_date ?? ""} onChange={e => setEditing({ ...editing, due_date: e.target.value })} className="mt-1 w-full h-9 px-3 rounded-md border bg-background text-sm" /></div>
+            <div><label className="text-xs font-medium">Due date</label><input type="date" disabled={rows.find(r => r.id === editing.id)?.status === "filed"} value={editing.due_date ?? ""} onChange={e => setEditing({ ...editing, due_date: e.target.value })} className="mt-1 w-full h-9 px-3 rounded-md border bg-background text-sm" /></div>
             <div><label className="text-xs font-medium">Notes</label><textarea value={editing.notes ?? ""} onChange={e => setEditing({ ...editing, notes: e.target.value })} rows={3} className="mt-1 w-full px-3 py-2 rounded-md border bg-background text-sm" /></div>
             <button onClick={() => saveEdit()} className="w-full h-10 rounded-md bg-primary text-primary-foreground text-sm font-medium inline-flex items-center justify-center gap-2"><Save className="h-4 w-4" /> Save</button>
           </div>

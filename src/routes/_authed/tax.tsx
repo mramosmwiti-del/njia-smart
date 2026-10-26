@@ -7,6 +7,7 @@ import { AlertTriangle, Clock, UserX, LayoutGrid, Check, ChevronDown, ChevronUp,
 import { useAuth } from "@/lib/auth";
 import { CompletionInvoiceDialog } from "@/components/completion-invoice-dialog";
 import { daysUntil, periodsOverdue, formatDate, formatDateTime } from "@/lib/format";
+import { filingOpenDate, isFilingOpen } from "@/lib/tax-period";
 
 export const Route = createFileRoute("/_authed/tax")({
   head: () => ({
@@ -452,6 +453,20 @@ function TaxPage() {
   // `skipInvoice` is only passed by the invoice prompt below once it has
   // generated the invoice (and stored the receipt), so neither check repeats.
   async function markFiled(returnId: string, filed: boolean, skipInvoice = false) {
+    // A filed period is closed: only Director/Admin can reopen it, and the next
+    // period can't be filed until its own filing window opens.
+    const target = returns.find((x: any) => x.id === returnId);
+    if (!filed && target?.status === "filed" && !isAdmin) {
+      toast.error("This period is already filed and closed. Only a Director or Admin can reopen it.");
+      return;
+    }
+    if (filed && target && target.status !== "filed") {
+      const cadence = policies.find((x: any) => x.tax_type === target.return_type)?.cadence;
+      if (!isFilingOpen(target.due_date, cadence)) {
+        toast.error(`This period opens for filing on ${formatDate(filingOpenDate(target.due_date, cadence))}.`);
+        return;
+      }
+    }
     if (filed && !skipInvoice) {
       const r = returns.find((x: any) => x.id === returnId);
       const hasReceipt = !!(documentsByReturn.get(returnId)?.length);
@@ -508,6 +523,8 @@ function TaxPage() {
             {rows.map(c => {
               const key = `${c.id}:${pol.tax_type}`;
               const cur = currentReturn(c.id, pol.tax_type);
+              const closed = !!cur && cur.status === "filed" && !isAdmin;
+              const waiting = !!cur && cur.status !== "filed" && !isFilingOpen(cur.due_date, pol.cadence);
               return (
                 <tr key={c.id} className="border-b last:border-0 hover:bg-muted/20">
                   <td className="py-1.5 px-3 font-medium">{c.company_name}</td>
@@ -522,14 +539,17 @@ function TaxPage() {
                   </td>
                   <td className="py-1.5 px-3">
                     {cur && (
-                      <label className="inline-flex items-center gap-1.5 cursor-pointer text-xs" title={cur.status === "filed" ? "Filed — uncheck to reopen" : "Check off once filed"}>
+                      <label
+                        className={`inline-flex items-center gap-1.5 text-xs ${closed || waiting ? "cursor-not-allowed opacity-70" : "cursor-pointer"}`}
+                        title={cur.status === "filed" ? (isAdmin ? "Filed — uncheck to reopen (Director/Admin)" : "Filed and closed") : waiting ? `Opens for filing on ${formatDate(filingOpenDate(cur.due_date, pol.cadence))}` : "Check off once filed"}
+                      >
                         <input
                           type="checkbox"
                           checked={cur.status === "filed"}
-                          disabled={busyCell === cur.id}
+                          disabled={busyCell === cur.id || closed || waiting}
                           onChange={e => markFiled(cur.id, e.target.checked)}
                         />
-                        {cur.status === "filed" ? "Filed" : "Mark filed"}
+                        {cur.status === "filed" ? (closed ? "Filed · closed" : "Filed") : waiting ? `Opens ${formatDate(filingOpenDate(cur.due_date, pol.cadence))}` : "Mark filed"}
                       </label>
                     )}
                   </td>
