@@ -2,25 +2,38 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Upload, Download, Trash2, FileText, Eye, X, Search, FolderOpen } from "lucide-react";
+import { Upload, Download, Trash2, FileText, Eye, X, Search, FolderOpen, ShieldCheck, CalendarClock, Link2 } from "lucide-react";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
 import { useLiveRefresh } from "@/hooks/use-live-refresh";
+import { isOnline } from "@/lib/offline/status";
 
 export const Route = createFileRoute("/_authed/documents")({ component: DocsPage });
 
-const CLIENT_DOCUMENT_CATEGORIES = [
-  { value: "client_id", label: "Client ID / Passport" },
-  { value: "cr12", label: "CR12 / Company Search" },
-  { value: "kra_pin", label: "KRA PIN Certificate" },
-  { value: "registration", label: "Registration / Incorporation Documents" },
-  { value: "ownership", label: "Ownership / Director Supporting Documents" },
-  { value: "bank_details", label: "Bank Details / Confirmation" },
-  { value: "contract", label: "General Client Agreements" },
-  { value: "client_supporting", label: "General Client Supporting Documents" },
-  { value: "other", label: "Other Client Document" },
-];
-const SERVICE_LINES = [
+type DocumentGroup = "client_master" | "service";
+type ServiceLine = "audit" | "advisory" | "tax" | "ict" | "outsourced_accounting" | "payroll_management" | "financial_business_management";
+type LibraryDocument = {
+  id: string;
+  sourceId: string;
+  title: string;
+  clientId: string;
+  clientName: string;
+  group: DocumentGroup;
+  serviceLine: string | null;
+  category: string;
+  bucket: string;
+  filePath: string;
+  createdAt: string;
+  updatedAt?: string | null;
+  version?: number | null;
+  periodLabel?: string | null;
+  expiresOn?: string | null;
+  confidentiality?: string | null;
+  origin: string;
+  canDelete: boolean;
+};
+
+const SERVICES: { value: ServiceLine; label: string }[] = [
   { value: "audit", label: "Audit" },
   { value: "advisory", label: "Advisory" },
   { value: "tax", label: "Tax" },
@@ -29,285 +42,316 @@ const SERVICE_LINES = [
   { value: "payroll_management", label: "Payroll Management" },
   { value: "financial_business_management", label: "Financial & Business Management" },
 ];
-const SERVICE_DOCUMENT_CATEGORIES = [
-  { value: "audit_workpaper", label: "Audit working papers / evidence" },
-  { value: "advisory_working_document", label: "Advisory case documents" },
-  { value: "tax_document", label: "Tax returns, filings & receipts" },
-  { value: "ict_document", label: "ICT service documents" },
-  { value: "accounting_document", label: "Accounting records / schedules" },
-  { value: "payroll_document", label: "Payroll records / statutory returns" },
-  { value: "financial_management_document", label: "Financial & business management reports" },
-  { value: "service_contract", label: "Service-specific contracts / correspondence" },
-  { value: "other_service", label: "Other service document" },
-];
+const MASTER_CATEGORIES = [
+  ["identity", "ID / Passport"], ["company_search", "CR12 / Company Search"],
+  ["kra_pin", "KRA PIN Certificate"], ["incorporation", "Incorporation / Registration"],
+  ["ownership", "Directors / Ownership Documents"], ["banking", "Bank Details / Confirmation"],
+  ["general_supporting", "General Supporting Document"],
+] as const;
+const SERVICE_CATEGORIES: Record<ServiceLine, readonly (readonly [string, string])[]> = {
+  audit: [["audit_evidence", "Audit Evidence"], ["working_papers", "Working Papers"], ["financial_statements", "Financial Statements"], ["audit_report", "Audit Report"], ["confirmation", "Confirmations"], ["other_service", "Other Audit Document"]],
+  advisory: [["advisory_assignment", "Assignment / Brief"], ["advisory_analysis", "Research / Analysis"], ["advisory_deliverable", "Recommendations / Deliverable"], ["other_service", "Other Advisory Document"]],
+  tax: [["tax_filing", "Tax Return / Filing"], ["tax_receipt", "Filing Receipt / Acknowledgement"], ["tax_computation", "Tax Computation"], ["tax_assessment", "Assessment / Notice"], ["other_service", "Other Tax Document"]],
+  ict: [["ict_project", "ICT Project Document"], ["ict_support", "Support / Configuration Record"], ["ict_handover", "Handover / User Guide"], ["other_service", "Other ICT Document"]],
+  outsourced_accounting: [["ledger", "Ledger / Trial Balance"], ["reconciliation", "Reconciliation / Schedule"], ["accounting_report", "Accounting Report"], ["other_service", "Other Accounting Document"]],
+  payroll_management: [["payroll_report", "Payroll Report"], ["payslip", "Payslip / Payroll Output"], ["payroll_statutory", "Statutory Submission"], ["other_service", "Other Payroll Document"]],
+  financial_business_management: [["management_report", "Management Report"], ["budget", "Budget / Forecast"], ["cashflow", "Cash Flow / Financial Analysis"], ["other_service", "Other Financial & Business Management Document"]],
+};
+const SERVICE_LABEL: Record<string, string> = Object.fromEntries(SERVICES.map((s) => [s.value, s.label]));
+const CATEGORY_LABEL: Record<string, string> = Object.fromEntries([
+  ...MASTER_CATEGORIES,
+  ...Object.values(SERVICE_CATEGORIES).flat(),
+].map(([value, label]) => [value, label]));
+const inputClass = "h-9 w-full min-w-0 rounded-md border bg-background px-3 text-sm";
 
 function DocsPage() {
   const { isAdmin } = useAuth();
-  const [rows, setRows] = useState<any[]>([]);
+  const [rows, setRows] = useState<LibraryDocument[]>([]);
   const [clients, setClients] = useState<any[]>([]);
   const [engagements, setEngagements] = useState<any[]>([]);
+  const [taxReturns, setTaxReturns] = useState<any[]>([]);
+  const [advisoryProjects, setAdvisoryProjects] = useState<any[]>([]);
+  const [serviceProjects, setServiceProjects] = useState<any[]>([]);
   const [clientId, setClientId] = useState("");
-  const [filterClientId, setFilterClientId] = useState("");
-  const [filterCategory, setFilterCategory] = useState("");
-  const [filterScope, setFilterScope] = useState("");
-  const [search, setSearch] = useState("");
-  const [category, setCategory] = useState("client_supporting");
-  const [documentScope, setDocumentScope] = useState("client_master");
-  const [serviceLine, setServiceLine] = useState("audit");
-  const [engagementId, setEngagementId] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [documentGroup, setDocumentGroup] = useState<DocumentGroup>("client_master");
+  const [serviceLine, setServiceLine] = useState<ServiceLine | "">("");
+  const [category, setCategory] = useState("identity");
+  const [relatedRecord, setRelatedRecord] = useState("");
+  const [periodLabel, setPeriodLabel] = useState("");
+  const [expiresOn, setExpiresOn] = useState("");
+  const [confidentiality, setConfidentiality] = useState("confidential");
   const [title, setTitle] = useState("");
+  const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<{ url: string; title: string } | null>(null);
+  const [tab, setTab] = useState<"all" | DocumentGroup>("all");
+  const [search, setSearch] = useState("");
+  const [filterClient, setFilterClient] = useState("");
+  const [filterService, setFilterService] = useState("all");
+  const [filterCategory, setFilterCategory] = useState("all");
 
   async function load() {
-    const [d, aw, c, e] = await Promise.all([
-      supabase.from("documents").select("*, clients(company_name), engagements(title, type)").order("created_at", { ascending: false }),
-      supabase.from("audit_workpapers").select("*, engagements(id, client_id, title, type, clients(company_name))").order("created_at", { ascending: false }),
+    const [docsRes, clientsRes, engagementsRes, taxRes, advisoryProjectsRes, advisoryMilestonesRes, advisoryDocsRes, serviceProjectsRes, serviceMilestonesRes, serviceDocsRes, auditDocsRes] = await Promise.all([
+      supabase.from("documents").select("*").order("created_at", { ascending: false }),
       supabase.from("clients").select("id, company_name").order("company_name"),
       supabase.from("engagements").select("id, client_id, title, type").order("created_at", { ascending: false }),
+      supabase.from("tax_returns").select("id, client_id, return_type, period_start, period_end").order("created_at", { ascending: false }),
+      supabase.from("advisory_projects").select("id, client_id, title"),
+      supabase.from("advisory_milestones").select("id, project_id, title"),
+      supabase.from("advisory_milestone_documents").select("*"),
+      supabase.from("service_projects").select("id, client_id, module, title"),
+      supabase.from("service_milestones").select("id, project_id, title"),
+      supabase.from("service_milestone_documents").select("*"),
+      supabase.from("audit_workpapers").select("*"),
     ]);
-    if (d.error) toast.error(`Could not load documents: ${d.error.message}`);
-    if (aw.error) toast.error(`Could not load audit documents: ${aw.error.message}`);
-    if (c.error) toast.error(`Could not load clients: ${c.error.message}`);
-    const clientDocuments = (d.data ?? []).map((r: any) => ({ ...r, source_table: "documents", storage_bucket: "client-documents" }));
-    const auditDocuments = (aw.data ?? []).filter((r: any) => r.engagements?.client_id).map((r: any) => ({
-      ...r,
-      client_id: r.engagements.client_id,
-      clients: r.engagements.clients,
-      document_category: "audit_workpaper",
-      document_scope: "service",
-      service_line: "audit",
-      audit_stage: r.category ?? "working_papers",
-      source_table: "audit_workpapers",
-      storage_bucket: "audit-workpapers",
-    }));
-    const advisoryResult = await supabase.from("advisory_milestone_documents" as any)
-      .select("*, advisory_milestones(id, title, project_id, advisory_projects(id, client_id, title, service_type, clients(company_name)))")
-      .order("created_at", { ascending: false });
-    if (advisoryResult.error) toast.error(`Could not load advisory documents: ${advisoryResult.error.message}`);
-    const advisoryDocuments = ((advisoryResult.data ?? []) as any[]).filter((r) => r.advisory_milestones?.advisory_projects?.client_id).map((r) => ({
-      ...r,
-      client_id: r.advisory_milestones.advisory_projects.client_id,
-      clients: r.advisory_milestones.advisory_projects.clients,
-      engagements: { title: `${r.advisory_milestones.advisory_projects.title} · ${r.advisory_milestones.title}` },
-      document_category: "advisory_working_document",
-      document_scope: "service",
-      service_line: "advisory",
-      source_table: "advisory_milestone_documents",
-      storage_bucket: "client-documents",
-    }));
-    const serviceResult = await supabase.from("service_milestone_documents" as any)
-      .select("*, service_milestones(id, title, project_id, service_projects(id, client_id, module, title, clients(company_name)))")
-      .order("created_at", { ascending: false });
-    if (serviceResult.error) toast.error(`Could not load service documents: ${serviceResult.error.message}`);
-    const serviceDocuments = ((serviceResult.data ?? []) as any[]).filter((r) => r.service_milestones?.service_projects?.client_id).map((r) => {
-      const project = r.service_milestones.service_projects;
-      const line = project.module;
-      return {
-        ...r,
-        client_id: project.client_id,
-        clients: project.clients,
-        engagements: { title: `${project.title} · ${r.service_milestones.title}` },
-        document_category: line === "ict" ? "ict_document" : line === "payroll_management" ? "payroll_document" : line === "financial_business_management" ? "financial_management_document" : "accounting_document",
-        document_scope: "service",
-        service_line: line,
-        source_table: "service_milestone_documents",
-        storage_bucket: "client-documents",
-      };
+    if (docsRes.error) toast.error(`Could not load central documents: ${docsRes.error.message}`);
+    const clientRows = clientsRes.data ?? [];
+    const clientMap = new Map<string, string>(clientRows.map((c: any): [string, string] => [c.id, c.company_name || "Unnamed client"]));
+    const engagementRows = engagementsRes.data ?? [];
+    const taxRows = taxRes.data ?? [];
+    const advisoryProjectRows = advisoryProjectsRes.data ?? [];
+    const advisoryMilestoneRows = advisoryMilestonesRes.data ?? [];
+    const serviceProjectRows = serviceProjectsRes.data ?? [];
+    const serviceMilestoneRows = serviceMilestonesRes.data ?? [];
+    setClients(clientRows);
+    setEngagements(engagementRows);
+    setTaxReturns(taxRows);
+    setAdvisoryProjects(advisoryProjectRows);
+    setServiceProjects(serviceProjectRows);
+
+    const engagementMap = new Map<string, any>(engagementRows.map((e: any): [string, any] => [e.id, e]));
+    const normalized: LibraryDocument[] = (docsRes.data ?? []).map((r: any) => {
+      const linkedEngagement: any = r.engagement_id ? engagementMap.get(r.engagement_id) : null;
+      const linkedService = r.service_line ?? (r.tax_return_id ? "tax" : linkedEngagement?.type ?? null);
+      const fallbackCategory = r.tax_return_id ? "tax_filing" : linkedEngagement?.type === "tax" ? "tax_filing" : linkedEngagement?.type === "advisory" ? "advisory_assignment" : linkedEngagement ? "audit_evidence" : "general_supporting";
+      return ({
+      id: r.id, sourceId: r.id, title: r.title, clientId: r.client_id ?? "", clientName: clientMap.get(r.client_id) ?? "Client not linked",
+      group: r.document_group === "service" || r.tax_return_id || r.engagement_id ? "service" : "client_master",
+      serviceLine: linkedService,
+      category: r.category ?? fallbackCategory,
+      bucket: r.storage_bucket || "client-documents", filePath: r.file_path, createdAt: r.created_at,
+      updatedAt: r.updated_at, version: r.version, periodLabel: r.period_label, expiresOn: r.expires_on,
+      confidentiality: r.confidentiality ?? "confidential", origin: "Central library", canDelete: true,
     });
-    const normalizedClientDocuments = clientDocuments.map((r: any) => ({
-      ...r,
-      document_scope: r.document_scope ?? (r.tax_return_id ? "service" : "client_master"),
-      service_line: r.service_line ?? (r.tax_return_id ? "tax" : null),
-      document_category: r.document_category ?? (r.tax_return_id ? "tax_document" : "other"),
-      engagements: r.engagements ?? null,
-    }));
-    setRows([...normalizedClientDocuments, ...auditDocuments, ...advisoryDocuments, ...serviceDocuments].sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
-    setClients(c.data ?? []);
-    setEngagements(e.data ?? []);
+    });
+
+    for (const r of auditDocsRes.data ?? []) {
+      const e: any = engagementMap.get(r.engagement_id);
+      if (!e || !r.file_path) continue;
+      normalized.push({ id: `audit:${r.id}`, sourceId: r.id, title: r.title, clientId: e.client_id, clientName: clientMap.get(e.client_id) ?? "Client not linked", group: "service", serviceLine: "audit", category: r.category || "working_papers", bucket: "audit-workpapers", filePath: r.file_path, createdAt: r.created_at, version: r.version, periodLabel: null, expiresOn: null, confidentiality: "confidential", origin: `Audit · ${e.title}`, canDelete: false });
+    }
+
+    const advisoryProjectMap = new Map<string, any>(advisoryProjectRows.map((p: any): [string, any] => [p.id, p]));
+    const advisoryMilestoneMap = new Map<string, any>(advisoryMilestoneRows.map((m: any): [string, any] => [m.id, m]));
+    for (const r of advisoryDocsRes.data ?? []) {
+      const milestone: any = advisoryMilestoneMap.get(r.milestone_id);
+      const project: any = milestone ? advisoryProjectMap.get(milestone.project_id) : null;
+      if (!project || !r.file_path) continue;
+      normalized.push({ id: `advisory:${r.id}`, sourceId: r.id, title: r.title, clientId: project.client_id, clientName: clientMap.get(project.client_id) ?? "Client not linked", group: "service", serviceLine: "advisory", category: "advisory_deliverable", bucket: "client-documents", filePath: r.file_path, createdAt: r.created_at, periodLabel: null, expiresOn: null, confidentiality: "confidential", origin: `Advisory · ${project.title}${milestone?.title ? ` · ${milestone.title}` : ""}`, canDelete: false });
+    }
+
+    const serviceProjectMap = new Map<string, any>(serviceProjectRows.map((p: any): [string, any] => [p.id, p]));
+    const serviceMilestoneMap = new Map<string, any>(serviceMilestoneRows.map((m: any): [string, any] => [m.id, m]));
+    for (const r of serviceDocsRes.data ?? []) {
+      const milestone: any = serviceMilestoneMap.get(r.milestone_id);
+      const project: any = milestone ? serviceProjectMap.get(milestone.project_id) : null;
+      if (!project || !r.file_path) continue;
+      normalized.push({ id: `service:${r.id}`, sourceId: r.id, title: r.title, clientId: project.client_id, clientName: clientMap.get(project.client_id) ?? "Client not linked", group: "service", serviceLine: project.module, category: "other_service", bucket: "client-documents", filePath: r.file_path, createdAt: r.created_at, periodLabel: null, expiresOn: null, confidentiality: "confidential", origin: `${SERVICE_LABEL[project.module] ?? project.module} · ${project.title}${milestone?.title ? ` · ${milestone.title}` : ""}`, canDelete: false });
+    }
+    normalized.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    setRows(normalized);
   }
+
   useEffect(() => { void load(); }, []);
-  useLiveRefresh(["documents", "clients", "engagements", "audit_workpapers", "advisory_milestone_documents", "service_milestone_documents"], load);
+  useLiveRefresh(["documents", "clients", "audit_workpapers", "advisory_milestone_documents", "service_milestone_documents"], load);
 
-  const filteredRows = useMemo(() => {
-    const needle = search.trim().toLowerCase();
-    return rows.filter((r) => {
-      if (filterClientId && r.client_id !== filterClientId) return false;
-      if (filterScope && (r.document_scope ?? "client_master") !== filterScope) return false;
-      if (filterCategory && (r.document_category ?? "other") !== filterCategory) return false;
-      if (needle && !`${r.title ?? ""} ${r.clients?.company_name ?? ""} ${r.engagements?.title ?? ""} ${SERVICE_LINES.find((s) => s.value === r.service_line)?.label ?? ""}`.toLowerCase().includes(needle)) return false;
-      return true;
-    });
-  }, [rows, filterClientId, filterScope, filterCategory, search]);
+  const categoryOptions = documentGroup === "client_master" ? MASTER_CATEGORIES : serviceLine ? SERVICE_CATEGORIES[serviceLine] : [];
+  const availableRelatedRecords = useMemo(() => {
+    if (documentGroup !== "service" || !serviceLine || !clientId) return [] as { value: string; label: string }[];
+    if (serviceLine === "audit") return engagements.filter((r) => r.client_id === clientId).map((r) => ({ value: `engagement:${r.id}`, label: r.title || r.type || "Audit engagement" }));
+    if (serviceLine === "tax") return taxReturns.filter((r) => r.client_id === clientId).map((r) => ({ value: `tax:${r.id}`, label: `${r.return_type}${r.period_end ? ` · ${r.period_end}` : ""}` }));
+    if (serviceLine === "advisory") return advisoryProjects.filter((r) => r.client_id === clientId).map((r) => ({ value: `advisory:${r.id}`, label: r.title }));
+    return serviceProjects.filter((r) => r.client_id === clientId && r.module === serviceLine).map((r) => ({ value: `service:${r.id}`, label: r.title }));
+  }, [documentGroup, serviceLine, clientId, engagements, taxReturns, advisoryProjects, serviceProjects]);
 
-  const clientEngagements = engagements.filter((e) => e.client_id === clientId);
+  function requireOnline(action: string) {
+    if (typeof navigator !== "undefined" && (!navigator.onLine || !isOnline())) {
+      toast.error(`${action} requires an active internet connection. Reconnect and try again.`);
+      return false;
+    }
+    return true;
+  }
 
   async function upload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
+    const input = e.currentTarget;
+    const file = input.files?.[0];
     if (!file) return;
-    if (!clientId) { toast.error("Pick a client first"); e.target.value = ""; return; }
-    if (documentScope === "service" && !serviceLine) { toast.error("Choose the service line for this document"); e.target.value = ""; return; }
-    if (documentScope === "service" && serviceLine === "audit" && engagementId && !clientEngagements.some((eng) => eng.id === engagementId && eng.type === "audit")) {
-      toast.error("Choose an audit engagement belonging to the selected client"); return;
-    }
+    if (busy) { input.value = ""; return; }
+    if (!requireOnline("Document uploads")) { input.value = ""; return; }
+    if (!clientId) { toast.error("Select a client first"); input.value = ""; return; }
+    if (documentGroup === "service" && !serviceLine) { toast.error("Select the service line"); input.value = ""; return; }
+    if (!category) { toast.error("Select a document category"); input.value = ""; return; }
     setBusy(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    const path = `${clientId}/${documentScope}/${documentScope === "service" ? serviceLine : "client-records"}/${category}/${Date.now()}-${file.name}`;
-    const up = await supabase.storage.from("client-documents").upload(path, file);
-    if (up.error) { toast.error(up.error.message); setBusy(false); e.target.value = ""; return; }
-    const { error } = await supabase.from("documents").insert({
-      client_id: clientId,
-      engagement_id: documentScope === "service" && serviceLine === "audit" ? (engagementId || null) : null,
-      document_category: category,
-      document_scope: documentScope,
-      service_line: documentScope === "service" ? serviceLine : null,
-      title: title.trim() || file.name,
-      file_path: path,
-      uploaded_by: user?.id,
-    } as any);
-    setBusy(false);
-    e.target.value = "";
-    if (error) {
-      await supabase.storage.from("client-documents").remove([path]);
-      toast.error(error.message);
-    } else {
-      toast.success("Document uploaded and linked to client");
-      setTitle("");
-      setEngagementId("");
-      await load();
+    let path: string | null = null;
+    try {
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) { toast.error(authError?.message || "Sign in again before uploading documents."); return; }
+      const [relationType, relationId] = relatedRecord ? relatedRecord.split(":") : ["", ""];
+      const safeName = file.name.replace(/[\\/]/g, "_");
+      const uniqueName = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      path = relationType === "tax" && relationId
+        ? `${clientId}/tax-returns/${relationId}/${uniqueName}-${safeName}`
+        : `${clientId}/${documentGroup}/${serviceLine || "client-master"}/${uniqueName}-${safeName}`;
+      const up = await supabase.storage.from("client-documents").upload(path, file, { upsert: false });
+      if (up.error) { toast.error(up.error.message); return; }
+      if (!requireOnline("Saving document details")) {
+        toast.error("The file was uploaded, but its record was not saved. Reconnect before continuing; the file has been retained to avoid deleting a possibly linked document.");
+        return;
+      }
+      const payload: Record<string, any> = {
+        client_id: clientId, title: title.trim() || file.name, file_path: path, uploaded_by: user.id,
+        document_group: documentGroup, service_line: documentGroup === "service" ? serviceLine : null,
+        category, storage_bucket: "client-documents", period_label: periodLabel.trim() || null,
+        expires_on: expiresOn || null, confidentiality,
+        engagement_id: relationType === "engagement" ? relationId : null,
+        tax_return_id: relationType === "tax" ? relationId : null,
+        advisory_project_id: relationType === "advisory" ? relationId : null,
+        service_project_id: relationType === "service" ? relationId : null,
+      };
+      const { error } = await supabase.from("documents").insert(payload as any);
+      if (error) {
+        // A connection can fail after the server committed the insert. Check the unique
+        // storage path before cleanup so we never delete a file that has a saved record.
+        const check = await supabase.from("documents").select("id").eq("file_path", path).maybeSingle();
+        if (check.data?.id) {
+          toast.success("Document uploaded and linked to the client");
+          setTitle(""); setPeriodLabel(""); setExpiresOn(""); setRelatedRecord("");
+          await load();
+        } else if (!check.error) {
+          const cleanup = await supabase.storage.from("client-documents").remove([path]);
+          toast.error(cleanup.error ? `Document details were not saved (${error.message}); the uploaded file could not be cleaned up (${cleanup.error.message}).` : error.message);
+        } else {
+          toast.error("The save result could not be confirmed. The uploaded file was retained to avoid breaking a record that may have been saved; refresh the library before retrying.");
+        }
+      } else {
+        toast.success("Document uploaded and linked to the client");
+        setTitle(""); setPeriodLabel(""); setExpiresOn(""); setRelatedRecord("");
+        await load();
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Document upload failed. Check your connection and try again.");
+    } finally {
+      setBusy(false);
+      input.value = "";
     }
   }
 
-  async function download(path: string, bucket = "client-documents") {
-    const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, 60);
-    if (error) toast.error(error.message);
-    else window.open(data.signedUrl, "_blank");
+  async function signedUrl(row: LibraryDocument, seconds: number) {
+    if (!requireOnline("Viewing or downloading documents")) return null;
+    try {
+      const { data, error } = await supabase.storage.from(row.bucket).createSignedUrl(row.filePath, seconds);
+      if (error) { toast.error(error.message); return null; }
+      return data.signedUrl;
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not open the document. Check your connection.");
+      return null;
+    }
   }
-  async function view(path: string, title: string, bucket = "client-documents") {
-    const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, 600);
-    if (error) toast.error(error.message);
-    else setPreview({ url: data.signedUrl, title });
+  async function download(row: LibraryDocument) {
+    const url = await signedUrl(row, 60);
+    if (url) window.open(url, "_blank", "noopener,noreferrer");
+  }
+  async function view(row: LibraryDocument) {
+    const url = await signedUrl(row, 600);
+    if (url) setPreview({ url, title: row.title });
+  }
+  async function remove(row: LibraryDocument) {
+    if (!row.canDelete || !confirm("Delete this document and its stored file? This cannot be undone.")) return;
+    if (!requireOnline("Document deletion")) return;
+    try {
+      const { error: storageError } = await supabase.storage.from(row.bucket).remove([row.filePath]);
+      if (storageError) { toast.error(`File was not deleted: ${storageError.message}`); return; }
+      const { error } = await supabase.from("documents").delete().eq("id", row.sourceId);
+      if (error) toast.error(`The file was removed, but its database record could not be deleted: ${error.message}`);
+      else { toast.success("Document deleted"); await load(); }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Document deletion failed. Check your connection.");
+    }
   }
 
-  async function remove(id: string, path: string) {
-    if (!confirm("Delete this document?")) return;
-    const row = rows.find((r) => r.id === id && r.file_path === path);
-    if (!row) { toast.error("Document record could not be found; refresh and try again"); return; }
-    const { error: storageError } = await supabase.storage.from(row.storage_bucket ?? "client-documents").remove([path]);
-    if (storageError) { toast.error(`Could not delete stored file: ${storageError.message}`); return; }
-    const table = row.source_table === "audit_workpapers" ? "audit_workpapers" : row.source_table === "advisory_milestone_documents" ? "advisory_milestone_documents" : row.source_table === "service_milestone_documents" ? "service_milestone_documents" : "documents";
-    const { error } = await (supabase as any).from(table).delete().eq("id", id);
-    if (error) toast.error(error.message); else { toast.success("Deleted"); await load(); }
-  }
+  const filteredRows = rows.filter((r) => {
+    if (tab !== "all" && r.group !== tab) return false;
+    if (filterClient && r.clientId !== filterClient) return false;
+    if (filterService !== "all" && r.serviceLine !== filterService) return false;
+    if (filterCategory !== "all" && r.category !== filterCategory) return false;
+    const haystack = `${r.title} ${r.clientName} ${r.origin} ${r.category} ${r.periodLabel ?? ""}`.toLowerCase();
+    return !search.trim() || haystack.includes(search.trim().toLowerCase());
+  });
+  const filteredCategories = [...new Set(rows.filter((r) => tab === "all" || r.group === tab).map((r) => r.category))].sort();
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-bold">Documents</h1>
-        <p className="text-sm text-muted-foreground">Separate reusable client records from documents belonging to a specific service. Every document is linked to its client.</p>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Documents</h1>
+          <p className="text-sm text-muted-foreground">One client-linked library, separating reusable client records from service workpapers and deliverables.</p>
+        </div>
+        <div className="flex items-center gap-2 rounded-md border px-3 py-2 text-xs text-muted-foreground"><ShieldCheck className="h-4 w-4 text-primary" /> Private files use time-limited access links</div>
       </div>
 
-      <div className="bg-card border rounded-lg p-4 space-y-3">
-        <div className="flex items-center gap-2 font-semibold text-sm"><Upload className="h-4 w-4" /> Upload and link a document</div>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-2">
-          <select value={documentScope} onChange={e => { const next = e.target.value; setDocumentScope(next); setCategory(next === "client_master" ? "client_supporting" : serviceLine === "audit" ? "audit_workpaper" : serviceLine === "advisory" ? "advisory_working_document" : serviceLine === "tax" ? "tax_document" : serviceLine === "ict" ? "ict_document" : serviceLine === "payroll_management" ? "payroll_document" : serviceLine === "financial_business_management" ? "financial_management_document" : "accounting_document"); setEngagementId(""); }} className="h-9 px-3 rounded-md border bg-background text-sm" aria-label="Document location">
-            <option value="client_master">Client Master Documents (reusable)</option><option value="service">Service-specific Documents</option>
-          </select>
-          <select value={clientId} onChange={e => { setClientId(e.target.value); setEngagementId(""); }} className="h-9 px-3 rounded-md border bg-background text-sm" aria-label="Client">
-            <option value="">Select client…</option>{clients.map(c => <option key={c.id} value={c.id}>{c.company_name}</option>)}
-          </select>
-          {documentScope === "service" && <select value={serviceLine} onChange={e => { const next = e.target.value; setServiceLine(next); setEngagementId(""); setCategory(next === "audit" ? "audit_workpaper" : next === "advisory" ? "advisory_working_document" : next === "tax" ? "tax_document" : next === "ict" ? "ict_document" : next === "payroll_management" ? "payroll_document" : next === "financial_business_management" ? "financial_management_document" : "accounting_document"); }} className="h-9 px-3 rounded-md border bg-background text-sm" aria-label="Service line">
-            {SERVICE_LINES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-          </select>}
-          <select value={category} onChange={e => { setCategory(e.target.value); setEngagementId(""); }} className="h-9 px-3 rounded-md border bg-background text-sm" aria-label="Document category">
-            {(documentScope === "client_master" ? CLIENT_DOCUMENT_CATEGORIES : SERVICE_DOCUMENT_CATEGORIES).map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-          </select>
-          <input placeholder="Document title (optional)" value={title} onChange={e => setTitle(e.target.value)} className="h-9 px-3 rounded-md border bg-background text-sm" />
-          <label className={`h-9 inline-flex items-center justify-center gap-2 rounded-md bg-primary text-primary-foreground text-sm cursor-pointer ${busy ? "opacity-60" : ""}`}>
-            <Upload className="h-4 w-4" /> {busy ? "Uploading…" : "Choose file & upload"}
-            <input type="file" hidden onChange={upload} disabled={busy || !clientId} />
-          </label>
-        </div>
-        {documentScope === "client_master" && <p className="text-xs text-muted-foreground">Use this section for identity, CR12, KRA PIN and other core client records that may support multiple services. These records are kept separate from service files.</p>}
-        {documentScope === "service" && serviceLine === "audit" && (
-          <div className="grid sm:grid-cols-2 gap-2">
-            <select value={engagementId} onChange={e => setEngagementId(e.target.value)} className="h-9 px-3 rounded-md border bg-background text-sm" aria-label="Audit engagement">
-              <option value="">Link to an audit engagement (optional)</option>
-              {clientEngagements.map(e => <option key={e.id} value={e.id}>{e.title}</option>)}
-            </select>
-            <p className="text-xs text-muted-foreground self-center">Audit documents remain linked to the selected client; linking an engagement helps locate them in the relevant audit.</p>
-          </div>
-        )}
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <button onClick={() => setTab("all")} className={`rounded-lg border p-3 text-left ${tab === "all" ? "border-primary bg-primary/5" : "bg-card hover:bg-muted/30"}`}><span className="text-xs text-muted-foreground">All records</span><div className="mt-1 text-xl font-semibold">{rows.length}</div></button>
+        <button onClick={() => setTab("client_master")} className={`rounded-lg border p-3 text-left ${tab === "client_master" ? "border-primary bg-primary/5" : "bg-card hover:bg-muted/30"}`}><span className="flex items-center gap-2 text-xs text-muted-foreground"><FolderOpen className="h-3.5 w-3.5" /> Client Master Documents</span><div className="mt-1 text-xl font-semibold">{rows.filter((r) => r.group === "client_master").length}</div></button>
+        <button onClick={() => setTab("service")} className={`rounded-lg border p-3 text-left ${tab === "service" ? "border-primary bg-primary/5" : "bg-card hover:bg-muted/30"}`}><span className="flex items-center gap-2 text-xs text-muted-foreground"><Link2 className="h-3.5 w-3.5" /> Service Documents</span><div className="mt-1 text-xl font-semibold">{rows.filter((r) => r.group === "service").length}</div></button>
       </div>
 
-      <div className="bg-card border rounded-lg p-3 space-y-3">
-        <div className="flex items-center gap-2 font-semibold text-sm"><FolderOpen className="h-4 w-4" /> Find documents</div>
-        <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={() => setFilterScope("client_master")} className="px-3 py-1.5 rounded-md border text-xs">Client Master Documents</button>
-          <button type="button" onClick={() => setFilterScope("service")} className="px-3 py-1.5 rounded-md border text-xs">Service Documents</button>
-          <button type="button" onClick={() => setFilterScope("")} className="px-3 py-1.5 rounded-md border text-xs">All Documents</button>
+      <section className="rounded-lg border bg-card p-4 space-y-3">
+        <div className="flex items-center justify-between gap-2"><h2 className="font-semibold">Upload a document</h2><span className="text-xs text-muted-foreground">Client linkage is required</span></div>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          <select value={clientId} onChange={(e) => { setClientId(e.target.value); setRelatedRecord(""); }} className={inputClass}><option value="">Select client…</option>{clients.map((c) => <option key={c.id} value={c.id}>{c.company_name}</option>)}</select>
+          <select value={documentGroup} onChange={(e) => { const next = e.target.value as DocumentGroup; setDocumentGroup(next); setServiceLine(""); setRelatedRecord(""); setCategory(next === "client_master" ? "identity" : ""); }} className={inputClass}><option value="client_master">Client Master Document</option><option value="service">Service Document</option></select>
+          <select value={serviceLine} onChange={(e) => { setServiceLine(e.target.value as ServiceLine | ""); setRelatedRecord(""); setCategory(""); }} disabled={documentGroup !== "service"} className={`${inputClass} disabled:opacity-50`}><option value="">Select service…</option>{SERVICES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}</select>
+          <select value={category} onChange={(e) => setCategory(e.target.value)} className={inputClass}><option value="">Select category…</option>{categoryOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Document title (optional)" className={inputClass} />
+          <select value={relatedRecord} onChange={(e) => setRelatedRecord(e.target.value)} disabled={!availableRelatedRecords.length} className={`${inputClass} disabled:opacity-50`}><option value="">Link to specific work item (optional)</option>{availableRelatedRecords.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}</select>
+          <input value={periodLabel} onChange={(e) => setPeriodLabel(e.target.value)} placeholder="Period / year (optional)" className={inputClass} />
+          <div className="grid grid-cols-2 gap-2"><input type="date" value={expiresOn} onChange={(e) => setExpiresOn(e.target.value)} title="Expiry or review date" className={inputClass} /><select value={confidentiality} onChange={(e) => setConfidentiality(e.target.value)} className={inputClass}><option value="confidential">Confidential</option><option value="restricted">Restricted</option></select></div>
         </div>
-        <div className="grid sm:grid-cols-3 gap-2">
-          <div className="relative">
-            <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-            <input placeholder="Search title, client or audit…" value={search} onChange={e => setSearch(e.target.value)} className="h-9 w-full pl-9 pr-3 rounded-md border bg-background text-sm" />
-          </div>
-          <select value={filterClientId} onChange={e => setFilterClientId(e.target.value)} className="h-9 px-3 rounded-md border bg-background text-sm" aria-label="Filter by client">
-            <option value="">All clients</option>{clients.map(c => <option key={c.id} value={c.id}>{c.company_name}</option>)}
-          </select>
-          <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)} className="h-9 px-3 rounded-md border bg-background text-sm" aria-label="Filter by category">
-            <option value="">All document categories</option>{[...CLIENT_DOCUMENT_CATEGORIES, ...SERVICE_DOCUMENT_CATEGORIES].filter((c, i, a) => a.findIndex(x => x.value === c.value) === i).map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-          </select>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs text-muted-foreground">Master documents are reusable client records. Service documents stay categorized by service; linking to a work item is optional. Restricted files are visible only to director/admin.</p>
+          <label className={`inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm text-primary-foreground ${busy || !clientId ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}><Upload className="h-4 w-4" />{busy ? "Uploading…" : "Choose file & upload"}<input type="file" hidden onChange={upload} disabled={busy || !clientId} /></label>
         </div>
-        <div className="text-xs text-muted-foreground">Showing {filteredRows.length} of {rows.length} documents</div>
-      </div>
+      </section>
 
-      <div className="bg-card border rounded-lg overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-muted text-left text-xs text-muted-foreground border-b">
-              <tr><th className="py-2 px-3">Document</th><th className="py-2 px-3">Document group</th><th className="py-2 px-3">Category</th><th className="py-2 px-3">Client</th><th className="py-2 px-3">Service / engagement</th><th className="py-2 px-3">Version</th><th className="py-2 px-3">Uploaded</th><th className="py-2 px-3"></th></tr>
-            </thead>
+      <section className="space-y-3 rounded-lg border bg-card p-3 sm:p-4">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="relative"><Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search title, client or work item…" className={`${inputClass} pl-9`} /></div>
+          <select value={filterClient} onChange={(e) => setFilterClient(e.target.value)} className={inputClass}><option value="">All clients</option>{clients.map((c) => <option key={c.id} value={c.id}>{c.company_name}</option>)}</select>
+          <select value={filterService} onChange={(e) => setFilterService(e.target.value)} className={inputClass}><option value="all">All services</option>{SERVICES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}</select>
+          <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)} className={inputClass}><option value="all">All categories</option>{filteredCategories.map((c) => <option key={c} value={c}>{CATEGORY_LABEL[c] ?? c.replaceAll("_", " ")}</option>)}</select>
+        </div>
+        <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground"><span>Showing {filteredRows.length} of {rows.length} documents</span><span className="inline-flex items-center gap-1"><CalendarClock className="h-3.5 w-3.5" /> Expiry dates are shown where recorded</span></div>
+        <div className="overflow-x-auto rounded-md border">
+          <table className="w-full min-w-[980px] text-sm">
+            <thead className="sticky top-0 bg-muted text-left text-xs text-muted-foreground"><tr><th className="px-3 py-2">Document</th><th className="px-3 py-2">Client</th><th className="px-3 py-2">Group / Service</th><th className="px-3 py-2">Category</th><th className="px-3 py-2">Period</th><th className="px-3 py-2">Expiry / review</th><th className="px-3 py-2">Uploaded</th><th className="px-3 py-2 text-right">Actions</th></tr></thead>
             <tbody>
-              {filteredRows.length === 0 && <tr><td colSpan={8} className="py-10 text-center text-muted-foreground">No matching documents. Choose a client and category when uploading, or adjust your filters.</td></tr>}
-              {filteredRows.map(r => (
-                <tr key={r.id} className="border-b last:border-0 hover:bg-muted/30 align-top">
-                  <td className="py-2 px-3"><div className="flex items-start gap-2 min-w-40"><FileText className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" /><span className="break-words">{r.title}</span></div></td>
-                  <td className="py-2 px-3"><span className={`inline-flex rounded-md px-2 py-1 text-xs ${r.document_scope === "service" ? "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-200" : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"}`}>{r.document_scope === "service" ? "Service file" : "Client master"}</span></td>
-                  <td className="py-2 px-3"><span className="inline-flex rounded-md bg-muted px-2 py-1 text-xs">{[...CLIENT_DOCUMENT_CATEGORIES, ...SERVICE_DOCUMENT_CATEGORIES].find(c => c.value === (r.document_category ?? "other"))?.label ?? "Other"}{r.source_table === "audit_workpapers" && r.audit_stage ? ` · ${String(r.audit_stage).replaceAll("_", " ")}` : ""}</span></td>
-                  <td className="py-2 px-3">{r.clients?.company_name ?? "Unlinked client"}</td>
-                  <td className="py-2 px-3 text-xs">{SERVICE_LINES.find(s => s.value === r.service_line)?.label ?? (r.source_table === "audit_workpapers" ? "Audit" : r.source_table === "advisory_milestone_documents" ? "Advisory" : "—")}{r.engagements?.title ? <div className="text-muted-foreground">{r.engagements.title}</div> : null}</td>
-                  <td className="py-2 px-3">v{r.version}</td>
-                  <td className="py-2 px-3 text-xs text-muted-foreground whitespace-nowrap">
-                    {formatDate(r.created_at)}
-                    {r.updated_at && new Date(r.updated_at).getTime() - new Date(r.created_at).getTime() > 60000 && <div className="text-[10px]">Edited {formatDateTime(r.updated_at)}</div>}
-                  </td>
-                  <td className="py-2 px-3 text-right space-x-2 whitespace-nowrap">
-                    <button onClick={() => view(r.file_path, r.title, r.storage_bucket ?? "client-documents")} className="text-primary text-xs inline-flex items-center gap-1"><Eye className="h-3 w-3" />View</button>
-                    <button onClick={() => download(r.file_path, r.storage_bucket ?? "client-documents")} className="text-primary text-xs inline-flex items-center gap-1"><Download className="h-3 w-3" />Download</button>
-                    {isAdmin && <button onClick={() => remove(r.id, r.file_path)} className="text-destructive text-xs inline-flex items-center gap-1"><Trash2 className="h-3 w-3" />Delete</button>}
-                  </td>
-                </tr>
-              ))}
+              {filteredRows.length === 0 && <tr><td colSpan={8} className="px-3 py-12 text-center text-muted-foreground">No documents match these filters.</td></tr>}
+              {filteredRows.map((r) => <tr key={r.id} className="border-t align-top hover:bg-muted/20">
+                <td className="max-w-[260px] px-3 py-2"><div className="flex items-start gap-2"><FileText className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" /><div className="min-w-0"><div className="break-words font-medium">{r.title}</div><div className="mt-0.5 break-words text-[11px] text-muted-foreground">{r.origin}{r.version ? ` · v${r.version}` : ""}</div>{r.confidentiality === "restricted" && <span className="mt-1 inline-block rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-700">Restricted</span>}</div></div></td>
+                <td className="max-w-[180px] whitespace-normal break-words px-3 py-2">{r.clientName}</td>
+                <td className="px-3 py-2"><span className={`inline-block rounded-full px-2 py-1 text-[11px] ${r.group === "client_master" ? "bg-blue-500/10 text-blue-700" : "bg-violet-500/10 text-violet-700"}`}>{r.group === "client_master" ? "Client Master" : SERVICE_LABEL[r.serviceLine ?? ""] ?? "Service"}</span></td>
+                <td className="max-w-[190px] whitespace-normal break-words px-3 py-2">{CATEGORY_LABEL[r.category] ?? r.category.replaceAll("_", " ")}</td>
+                <td className="px-3 py-2">{r.periodLabel || "—"}</td>
+                <td className="px-3 py-2">{r.expiresOn ? formatDate(r.expiresOn) : "—"}</td>
+                <td className="whitespace-nowrap px-3 py-2 text-xs text-muted-foreground">{formatDate(r.createdAt)}{r.updatedAt && new Date(r.updatedAt).getTime() - new Date(r.createdAt).getTime() > 60000 && <div className="text-[10px]">Edited {formatDateTime(r.updatedAt)}</div>}</td>
+                <td className="whitespace-nowrap px-3 py-2 text-right"><div className="inline-flex items-center gap-3"><button onClick={() => void view(r)} className="inline-flex items-center gap-1 text-xs text-primary"><Eye className="h-3 w-3" />View</button><button onClick={() => void download(r)} className="inline-flex items-center gap-1 text-xs text-primary"><Download className="h-3 w-3" />Download</button>{isAdmin && r.canDelete && <button onClick={() => void remove(r)} aria-label={`Delete ${r.title}`} className="text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>}</div></td>
+              </tr>)}
             </tbody>
           </table>
         </div>
-      </div>
+        <p className="text-xs text-muted-foreground">Documents originating in Audit, Advisory or service milestones are shown here by reference and should be managed from their originating service module. This avoids duplicate files and preserves existing workflows.</p>
+      </section>
 
-      {preview && (
-        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={() => setPreview(null)}>
-          <div onClick={e => e.stopPropagation()} className="bg-card w-full max-w-5xl h-[90vh] rounded-lg flex flex-col overflow-hidden">
-            <div className="flex justify-between items-center p-3 border-b">
-              <div className="font-semibold text-sm truncate">{preview.title}</div>
-              <div className="flex items-center gap-2">
-                <a href={preview.url} target="_blank" rel="noreferrer" className="text-xs text-primary inline-flex items-center gap-1"><Download className="h-3 w-3" />Open in new tab</a>
-                <button onClick={() => setPreview(null)}><X className="h-4 w-4" /></button>
-              </div>
-            </div>
-            <iframe src={preview.url} className="flex-1 w-full" title={preview.title} />
-          </div>
-        </div>
-      )}
+      {preview && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => setPreview(null)}><div onClick={(e) => e.stopPropagation()} className="flex h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-lg bg-card"><div className="flex items-center justify-between gap-3 border-b p-3"><div className="truncate text-sm font-semibold">{preview.title}</div><div className="flex items-center gap-3"><a href={preview.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-primary"><Download className="h-3 w-3" />Open in new tab</a><button onClick={() => setPreview(null)} aria-label="Close preview"><X className="h-4 w-4" /></button></div></div><iframe src={preview.url} className="w-full flex-1" title={preview.title} /></div></div>}
     </div>
   );
 }
