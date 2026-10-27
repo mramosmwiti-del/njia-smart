@@ -7,7 +7,7 @@ export const OFFLINE_CONFIG = {
    * (salary, bank, national ID, payslips). Their pages simply need internet.
    * Remove a name to make that data available offline too.
    */
-  excludeTables: ["hr_employment", "payslips", "hr_documents"] as string[],
+  excludeTables: ["hr_employment", "payslips", "hr_documents", "documents"] as string[],
 
   /** Columns stripped from cached copies (never written to the device). */
   redactColumns: { clients: ["portal_password_hash"] } as Record<string, string[]>,
