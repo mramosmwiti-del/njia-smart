@@ -93,11 +93,22 @@ export function ServiceModulePage({
   const [docs, setDocs] = useState<any[]>([]);
 
   async function load() {
-    const [p, c, s] = await Promise.all([
+    const [first, c, s] = await Promise.all([
       supabase.from("service_projects" as any).select(PROJECT_SELECT).eq("module", moduleKey).order("updated_at", { ascending: false }).order("created_at", { ascending: false }),
       supabase.from("clients").select("id, company_name").order("company_name"),
       supabase.from("profiles").select("id, full_name"),
     ]);
+    let p: any = first;
+    if (p.error) {
+      // Previously this failure was swallowed and the list just said "No projects yet".
+      // Show the reason, then retry with the same lean query the dashboard cards use so
+      // the projects still appear even if a newer column is missing in this database.
+      toast.error(`${moduleLabel} projects: ${p.error.message}`);
+      p = await supabase.from("service_projects" as any)
+        .select("*, clients(company_name), service_milestones(id, title, due_date, done)")
+        .eq("module", moduleKey).order("created_at", { ascending: false });
+      if (p.error) toast.error(`${moduleLabel} projects (retry): ${p.error.message}`);
+    }
     setRows((p.data as any[]) ?? []); setClients(c.data ?? []); setStaff(s.data ?? []);
   }
   useEffect(() => { load(); }, [moduleKey]);
