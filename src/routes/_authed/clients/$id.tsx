@@ -2,7 +2,7 @@ import { createFileRoute, Link, useParams, useNavigate } from "@tanstack/react-r
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { ArrowLeft, Pencil, Trash2, Plus, Eye, EyeOff, Check, X, Pause, Play } from "lucide-react";
+import { ArrowLeft, Pencil, Trash2, Plus, Eye, EyeOff, Download, Check, X, Pause, Play } from "lucide-react";
 import { formatDate } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -69,6 +69,38 @@ function ClientDetail() {
     setObligations(obl.data ?? []);
   }
   useEffect(() => { load(); }, [id]);
+
+  async function openDocument(doc: any, download = false) {
+    if (!doc.file_path) { toast.error("This document has no stored file."); return; }
+    try {
+      const bucket = doc.storage_bucket || "client-documents";
+      const options = download ? { download: true } : undefined;
+      const { data, error } = await supabase.storage.from(bucket).createSignedUrl(doc.file_path, 60, options as any);
+      if (error) throw error;
+      window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+    } catch (error: any) {
+      toast.error(error?.message || "Could not open this document.");
+    }
+  }
+
+  async function deleteClientDocument(doc: any) {
+    if (!isAdmin) { toast.error("Only Admin or Director can delete documents."); return; }
+    if (!window.confirm(`Delete “${doc.title || "this document"}” from this client and the central Document module? This cannot be undone.`)) return;
+    try {
+      const bucket = doc.storage_bucket || "client-documents";
+      if (doc.file_path) {
+        const { error: storageError } = await supabase.storage.from(bucket).remove([doc.file_path]);
+        if (storageError) throw new Error(`The file was not deleted: ${storageError.message}`);
+      }
+      const { error } = await supabase.from("documents").delete().eq("id", doc.id).eq("client_id", id);
+      if (error) throw new Error(`The stored file was removed, but its document record could not be deleted: ${error.message}`);
+      toast.success("Document deleted from the client and central Document module.");
+      await load();
+    } catch (error: any) {
+      toast.error(error?.message || "Could not delete this document.");
+      await load();
+    }
+  }
 
   async function setPaused(paused: boolean) {
     const { data: { user } } = await supabase.auth.getUser();
@@ -420,7 +452,48 @@ function ClientDetail() {
       )}
       {tab === "Audit" && <TabSection label="audit engagement" onAdd={() => openAdd("audit")}><RelatedList rows={related.engagements.filter((e:any)=>e.type==="audit")} cols={["title","status","due_date"]} empty="No audit engagements" /></TabSection>}
       {tab === "Advisory" && <TabSection label="advisory project" onAdd={() => openAdd("advisory")}><RelatedList rows={related.advisory} cols={["title","status","due_date"]} empty="No advisory projects" /></TabSection>}
-      {tab === "Documents" && <TabSection label="document" onAdd={() => openAdd("document")}><RelatedList rows={related.docs} cols={["title","version","created_at"]} empty="No documents" /></TabSection>}
+      {tab === "Documents" && (
+        <TabSection label="document" onAdd={() => openAdd("document")}>
+          {related.docs.length === 0 ? <Empty msg="No documents" /> : (
+            <div className="bg-card border rounded-lg overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/40 text-left text-xs text-muted-foreground border-b">
+                  <tr>
+                    <th className="py-2 px-3">Document</th>
+                    <th className="py-2 px-3">Version</th>
+                    <th className="py-2 px-3">Added</th>
+                    <th className="py-2 px-3">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {related.docs.map((doc: any) => (
+                    <tr key={doc.id} className="border-b last:border-0">
+                      <td className="py-2 px-3 font-medium">{doc.title || "Untitled document"}</td>
+                      <td className="py-2 px-3">{doc.version ?? "—"}</td>
+                      <td className="py-2 px-3">{formatDate(doc.created_at)}</td>
+                      <td className="py-2 px-3">
+                        <div className="flex items-center gap-1">
+                          <Button type="button" variant="outline" size="sm" onClick={() => openDocument(doc)} disabled={!doc.file_path} title="View document">
+                            <Eye className="h-3.5 w-3.5 mr-1" />View
+                          </Button>
+                          <Button type="button" variant="outline" size="sm" onClick={() => openDocument(doc, true)} disabled={!doc.file_path} title="Download document">
+                            <Download className="h-3.5 w-3.5 mr-1" />Download
+                          </Button>
+                          {isAdmin && (
+                            <Button type="button" variant="ghost" size="sm" onClick={() => deleteClientDocument(doc)} title="Delete document" aria-label={`Delete ${doc.title || "document"}`}>
+                              <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                            </Button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </TabSection>
+      )}
       {tab === "Tasks" && <TabSection label="task" onAdd={() => openAdd("task")}><RelatedList rows={related.tasks} cols={["title","priority","status","due_date"]} empty="No tasks" /></TabSection>}
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
