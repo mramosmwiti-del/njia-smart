@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useRouterState } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import {
@@ -92,6 +93,28 @@ export function ServiceModulePage({
   const [invoices, setInvoices] = useState<any[]>([]);
   const [docs, setDocs] = useState<any[]>([]);
 
+  // Dashboard click-through: /ict?tab=projects&filter=active&project=<id> (also used by
+  // the other service modules). tab picks the tab, filter narrows the list, project
+  // opens that project's workspace. "ts" changes on every click so a repeat click re-applies.
+  const search = useRouterState({ select: (st) => st.location.search }) as Record<string, unknown>;
+  const urlTab = typeof search.tab === "string" ? search.tab : undefined;
+  const urlFilter = typeof search.filter === "string" ? search.filter : undefined;
+  const urlProject = typeof search.project === "string" ? search.project : undefined;
+  const urlTs = String(search.ts ?? "");
+  const [projectFilter, setProjectFilter] = useState<string | null>(null);
+  const [billingFilter, setBillingFilter] = useState<string | null>(null);
+  const topRef = useRef<HTMLDivElement>(null);
+  const openedProject = useRef("");
+
+  useEffect(() => {
+    if (!urlTab || !["projects", "clients", "billing", "documents"].includes(urlTab)) return;
+    setTab(urlTab as typeof tab);
+    setProjectFilter(urlTab === "projects" ? (urlFilter ?? null) : null);
+    setBillingFilter(urlTab === "billing" ? (urlFilter ?? null) : null);
+    const t = window.setTimeout(() => topRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
+    return () => window.clearTimeout(t);
+  }, [urlTab, urlFilter, urlTs]);
+
   async function load() {
     const [first, c, s] = await Promise.all([
       supabase.from("service_projects" as any).select(PROJECT_SELECT).eq("module", moduleKey).order("updated_at", { ascending: false }).order("created_at", { ascending: false }),
@@ -112,6 +135,29 @@ export function ServiceModulePage({
     setRows((p.data as any[]) ?? []); setClients(c.data ?? []); setStaff(s.data ?? []);
   }
   useEffect(() => { load(); }, [moduleKey]);
+
+  useEffect(() => {
+    if (!urlProject || rows.length === 0) return;
+    const key = `${urlProject}:${urlTs}`;
+    if (openedProject.current === key) return;
+    const r = rows.find(x => x.id === urlProject);
+    if (!r) return;
+    openedProject.current = key;
+    setMilestoneEditor(r);
+    setClosureNotes(r.closure_notes ?? "");
+  }, [urlProject, urlTs, rows]);
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const isOpenProject = (r: any) => r.status !== "completed" && r.status !== "cancelled";
+  const lateSteps = (r: any) => (r.service_milestones ?? []).filter((m: any) => m.due_date && m.due_date < todayStr && !m.done).length;
+  const visibleRows = rows.filter(r =>
+    !projectFilter ? true
+      : projectFilter === "active" ? isOpenProject(r)
+      : projectFilter === "overdue" ? lateSteps(r) > 0
+      : projectFilter === "risk" ? isOpenProject(r) && ((!!r.due_date && r.due_date < todayStr) || lateSteps(r) > 0)
+      : true);
+  const projectFilterLabel: Record<string, string> = { active: "Active projects", overdue: "Projects with overdue milestones", risk: "Projects at risk" };
+  const visibleInvoices = billingFilter === "balance" ? invoices.filter(i => Number(i.total ?? 0) > Number(i.amount_paid ?? 0)) : invoices;
 
   const moduleClientIds = Array.from(new Set(rows.map(r => r.client_id).filter(Boolean)));
 
@@ -364,7 +410,7 @@ export function ServiceModulePage({
   ] as const;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" ref={topRef}>
       <div className="flex justify-between items-center flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold">{moduleLabel}</h1>
@@ -389,10 +435,17 @@ export function ServiceModulePage({
         ))}
       </div>
 
+      {tab === "projects" && projectFilter && projectFilterLabel[projectFilter] && (
+        <div className="flex items-center gap-2 text-xs">
+          <span className="px-2 py-1 rounded-full bg-primary/10 text-primary">{projectFilterLabel[projectFilter]} · {visibleRows.length}</span>
+          <button onClick={() => setProjectFilter(null)} className="text-muted-foreground hover:text-foreground underline">Show all projects</button>
+        </div>
+      )}
+
       {tab === "projects" && (
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {rows.length === 0 && <div className="bg-card border rounded-lg p-8 text-center text-muted-foreground text-sm col-span-full">No {moduleLabel.toLowerCase()} projects yet.</div>}
-          {rows.map(r => {
+          {visibleRows.length === 0 && <div className="bg-card border rounded-lg p-8 text-center text-muted-foreground text-sm col-span-full">{rows.length === 0 ? `No ${moduleLabel.toLowerCase()} projects yet.` : "No projects match this filter."}</div>}
+          {visibleRows.map(r => {
             const ms = r.service_milestones ?? [];
             const done = ms.filter((m: any) => m.done).length;
             const verified = ms.filter((m: any) => m.verified).length;
@@ -458,6 +511,13 @@ export function ServiceModulePage({
         </div>
       )}
 
+      {tab === "billing" && billingFilter === "balance" && (
+        <div className="flex items-center gap-2 text-xs">
+          <span className="px-2 py-1 rounded-full bg-primary/10 text-primary">Invoices with a balance due · {visibleInvoices.length}</span>
+          <button onClick={() => setBillingFilter(null)} className="text-muted-foreground hover:text-foreground underline">Show all invoices</button>
+        </div>
+      )}
+
       {tab === "billing" && (
         <div className="bg-card border rounded-lg overflow-hidden">
           <div className="overflow-x-auto">
@@ -466,8 +526,8 @@ export function ServiceModulePage({
                 <tr><th className="py-2 px-3">Client</th><th>Invoice</th><th>Issued</th><th>Due</th><th>Total</th><th>Paid</th><th>Status</th></tr>
               </thead>
               <tbody>
-                {invoices.length === 0 && <tr><td colSpan={7} className="py-10 text-center text-muted-foreground">No invoices tagged “{moduleLabel}” yet. Set the Service Line to “{moduleLabel}” when creating an invoice in Accounts.</td></tr>}
-                {invoices.map(inv => (
+                {visibleInvoices.length === 0 && <tr><td colSpan={7} className="py-10 text-center text-muted-foreground">No invoices tagged “{moduleLabel}” yet. Set the Service Line to “{moduleLabel}” when creating an invoice in Accounts.</td></tr>}
+                {visibleInvoices.map(inv => (
                   <tr key={inv.id} className="border-b last:border-0 hover:bg-muted/30">
                     <td className="py-2 px-3 font-medium">{inv.clients?.company_name}</td>
                     <td>{inv.invoice_number}</td>

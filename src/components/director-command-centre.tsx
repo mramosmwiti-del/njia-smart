@@ -36,6 +36,9 @@ const ENGAGEMENT_LINES = [
   { label: "ICT", to: "/ict", module: "ict" },
 ] as const;
 
+// These modules share the service-module page, which understands ?tab=projects&filter=active.
+const SERVICE_MODULES: string[] = ["outsourced_accounting", "payroll_management", "financial_business_management", "ict"];
+
 export function DirectorCommandCentre() {
   const { user, access } = useAuth();
   const [fin, setFin] = useState<{ billed: number; collected: number; outstanding: number; overdue: number } | null>(null);
@@ -144,7 +147,7 @@ export function DirectorCommandCentre() {
           <div className="mt-2 text-2xl font-bold">{v(Object.keys(engagements).length ? totalEngagements : null)}</div>
           <div className="mt-2 flex flex-wrap gap-1.5">
             {lines.map((l) => (
-              <Link key={l.module} to={l.to} className="text-xs px-2 py-1 rounded-full border bg-muted/40 hover:border-primary/60 hover:text-primary transition">
+              <Link key={l.module} to={l.to} {...(SERVICE_MODULES.includes(l.module) ? { search: { tab: "projects", filter: "active" } as never } : {})} className="text-xs px-2 py-1 rounded-full border bg-muted/40 hover:border-primary/60 hover:text-primary transition">
                 {l.label} <span className="font-semibold">{engagements[l.module]}</span>
               </Link>
             ))}
