@@ -6,7 +6,12 @@ import { Plus, X, Trash2, FileText, Wallet, AlertCircle, TrendingUp, Paperclip, 
 import { formatDate, STATUS_COLORS } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
 
-export const Route = createFileRoute("/_authed/accounts")({ component: AccountsPage });
+export const Route = createFileRoute("/_authed/accounts")({
+  validateSearch: (s: Record<string, unknown>) => ({
+    filter: s.filter === "outstanding" || s.filter === "overdue" || s.filter === "collected" ? s.filter : undefined,
+  }),
+  component: AccountsPage,
+});
 
 const STATUS = ["draft", "sent", "partial", "paid", "overdue"];
 const SERVICE_LINES = [
@@ -46,10 +51,12 @@ function AccountsPage() {
   // Director/Admin see the whole book. Everyone else only sees invoices raised
   // on their own clients (enforced by RLS too) and never the firm-wide totals.
   const restricted = !isAdmin;
+  const search = Route.useSearch();
   const [rows, setRows] = useState<any[]>([]);
   const [clients, setClients] = useState<any[]>([]);
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [amountFilter, setAmountFilter] = useState<"all" | "outstanding" | "overdue" | "collected">(search.filter ?? "all");
   // Who handled the client's account when the invoice was raised. Kept in its
   // own table (invoice_handlers) and shown only here, never on the invoice.
   const [staff, setStaff] = useState<any[]>([]);
@@ -181,9 +188,13 @@ function AccountsPage() {
 
   const filtered = useMemo(() => portfolioRows.filter(r =>
     (statusFilter === "all" || r.status === statusFilter) &&
+    (amountFilter === "all" ||
+      (amountFilter === "outstanding" && Number(r.total || 0) > Number(r.amount_paid || 0)) ||
+      (amountFilter === "overdue" && r.status === "overdue" && Number(r.total || 0) > Number(r.amount_paid || 0)) ||
+      (amountFilter === "collected" && Number(r.amount_paid || 0) > 0)) &&
     (!q || r.invoice_number?.toLowerCase().includes(q.toLowerCase()) ||
       r.clients?.company_name?.toLowerCase().includes(q.toLowerCase()))
-  ), [portfolioRows, q, statusFilter]);
+  ), [portfolioRows, q, statusFilter, amountFilter]);
 
   // Totals follow the selected person's portfolio (all invoices when none is picked).
   const kpi = useMemo(() => {
@@ -236,16 +247,22 @@ function AccountsPage() {
       {/* KPIs: firm-wide totals are for Director/Admin only */}
       {!restricted && (
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Kpi label="Total Billed" value={money(kpi.billed)} icon={<FileText className="h-4 w-4" />} tone="blue" />
-        <Kpi label="Collected" value={money(kpi.collected)} icon={<Wallet className="h-4 w-4" />} tone="emerald" />
-        <Kpi label="Outstanding" value={money(kpi.outstanding)} icon={<TrendingUp className="h-4 w-4" />} tone="amber" />
-        <Kpi label="Overdue" value={money(kpi.overdue)} icon={<AlertCircle className="h-4 w-4" />} tone="red" />
+        <Kpi label="Total Billed" value={money(kpi.billed)} icon={<FileText className="h-4 w-4" />} tone="blue" onClick={() => { setAmountFilter("all"); setStatusFilter("all"); }} />
+        <Kpi label="Collected" value={money(kpi.collected)} icon={<Wallet className="h-4 w-4" />} tone="emerald" onClick={() => { setAmountFilter("collected"); setStatusFilter("all"); }} />
+        <Kpi label="Outstanding" value={money(kpi.outstanding)} icon={<TrendingUp className="h-4 w-4" />} tone="amber" onClick={() => { setAmountFilter("outstanding"); setStatusFilter("all"); }} />
+        <Kpi label="Overdue" value={money(kpi.overdue)} icon={<AlertCircle className="h-4 w-4" />} tone="red" onClick={() => { setAmountFilter("overdue"); setStatusFilter("all"); }} />
       </div>
       )}
 
       {/* Filters */}
       <div className="flex flex-wrap gap-2 items-center">
         <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search invoice # or client…" className="h-9 px-3 rounded-md border bg-background text-sm w-64" />
+        <select value={amountFilter} onChange={e => setAmountFilter(e.target.value as typeof amountFilter)} className="h-9 px-2 rounded-md border bg-background text-sm">
+          <option value="all">All balances</option>
+          <option value="outstanding">Outstanding</option>
+          <option value="overdue">Overdue</option>
+          <option value="collected">Has payments</option>
+        </select>
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="h-9 px-2 rounded-md border bg-background text-sm">
           <option value="all">All statuses</option>
           {STATUS.map(s => <option key={s} value={s}>{s}</option>)}
@@ -474,7 +491,7 @@ function AccountsPage() {
   );
 }
 
-function Kpi({ label, value, icon, tone }: { label: string; value: string; icon: React.ReactNode; tone: "blue" | "emerald" | "amber" | "red" }) {
+function Kpi({ label, value, icon, tone, onClick }: { label: string; value: string; icon: React.ReactNode; tone: "blue" | "emerald" | "amber" | "red"; onClick: () => void }) {
   const tones: any = {
     blue: "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-200",
     emerald: "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200",
@@ -482,12 +499,12 @@ function Kpi({ label, value, icon, tone }: { label: string; value: string; icon:
     red: "bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-200",
   };
   return (
-    <div className="rounded-lg border bg-card p-4">
+    <button type="button" onClick={onClick} className="rounded-lg border bg-card p-4 text-left hover:border-primary/60 hover:shadow-sm transition">
       <div className="flex items-center justify-between">
         <span className="text-xs uppercase tracking-wider text-muted-foreground">{label}</span>
         <span className={`p-1.5 rounded-md ${tones[tone]}`}>{icon}</span>
       </div>
       <div className="mt-2 text-lg font-bold">{value}</div>
-    </div>
+    </button>
   );
 }

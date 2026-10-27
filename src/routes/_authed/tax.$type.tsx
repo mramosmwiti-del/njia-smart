@@ -13,6 +13,7 @@ import { filingOpenDate, isFilingOpen } from "@/lib/tax-period";
 export const Route = createFileRoute("/_authed/tax/$type")({
   validateSearch: (s: Record<string, unknown>) => ({
     client: typeof s.client === "string" ? s.client : undefined,
+    status: s.status === "open" || s.status === "overdue" || s.status === "filed" || s.status === "pending" || s.status === "in_progress" ? s.status : undefined,
   }),
   component: TaxTypePage,
 });
@@ -26,7 +27,10 @@ function TaxTypePage() {
   const [rows, setRows] = useState<any[]>([]);
   const [clients, setClients] = useState<any[]>([]);
   const [staff, setStaff] = useState<any[]>([]);
-  const [filter, setFilter] = useState({ client: search.client ?? "", assignee: "", status: "" });
+  const [filter, setFilter] = useState({ client: search.client ?? "", assignee: "", status: search.status ?? "" });
+  useEffect(() => {
+    setFilter(prev => ({ ...prev, client: search.client ?? "", status: search.status ?? "" }));
+  }, [search.client, search.status]);
   const [editing, setEditing] = useState<any>(null);
   const [policy, setPolicy] = useState<any>(null);
   const [invoiceFor, setInvoiceFor] = useState<{ id: string; row: any; clientName?: string | null; description: string; needsReceipt: boolean; then: () => Promise<void> } | null>(null);
@@ -72,8 +76,12 @@ function TaxTypePage() {
   const filtered = useMemo(() => rows.filter(r =>
     (!filter.client || r.client_id === filter.client) &&
     (!filter.assignee || r.assigned_to === filter.assignee) &&
-    (!filter.status || r.status === filter.status)
-  ), [rows, filter]);
+    (!filter.status ||
+      (filter.status === "open" && r.status !== "filed") ||
+      (filter.status === "overdue" && r.status !== "filed" && periodsOverdue(r.due_date, policy?.cadence ?? "monthly") >= 1) ||
+      (filter.status === "filed" && r.status === "filed") ||
+      (filter.status !== "open" && filter.status !== "overdue" && filter.status !== "filed" && r.status === filter.status))
+  ), [rows, filter, policy?.cadence]);
 
   // `skipInvoice` is only passed by the invoice prompt once it has generated the
   // invoice (and stored the receipt), so neither check repeats.
@@ -242,7 +250,10 @@ function TaxTypePage() {
         </select>
         <select value={filter.status} onChange={e => setFilter({ ...filter, status: e.target.value })} className="h-8 px-2 rounded-md border bg-background text-xs">
           <option value="">All statuses</option>
-          {STATUSES.map(s => <option key={s} value={s}>{s.replace(/_/g, " ")}</option>)}
+          <option value="open">Open</option>
+          <option value="overdue">Overdue</option>
+          <option value="filed">Filed</option>
+          {STATUSES.filter(s => s !== "filed" && s !== "overdue").map(s => <option key={s} value={s}>{s.replace(/_/g, " ")}</option>)}
         </select>
         {(filter.client || filter.assignee || filter.status) && (
           <button onClick={() => setFilter({ client: "", assignee: "", status: "" })} className="text-xs text-muted-foreground hover:text-foreground">Clear</button>

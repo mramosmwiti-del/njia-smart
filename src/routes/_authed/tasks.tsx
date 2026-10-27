@@ -12,6 +12,7 @@ export const Route = createFileRoute("/_authed/tasks")({
   component: TasksPage,
   validateSearch: (s: Record<string, unknown>) => ({
     status: typeof s.status === "string" ? s.status : undefined,
+    overdue: s.overdue === true || s.overdue === "true" ? true : undefined,
   }),
 });
 
@@ -19,7 +20,7 @@ const EMPTY = { id: "", title:"", description:"", client_id:"", assigned_to:"", 
 
 function TasksPage() {
   const { user, isAdmin, canCreate, canDelete } = useAuth();
-  const { status: statusFilter } = Route.useSearch();
+  const { status: statusFilter, overdue: overdueFilter } = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
   const [rows, setRows] = useState<any[]>([]);
   const [clients, setClients] = useState<any[]>([]);
@@ -90,7 +91,10 @@ function TasksPage() {
   }
 
   const mine = rows.filter(r => r.assigned_to === user?.id || r.created_by === user?.id);
-  const visible = statusFilter ? mine.filter(r => r.status === statusFilter) : mine;
+  const visible = mine.filter(r =>
+    (!statusFilter || r.status === statusFilter) &&
+    (!overdueFilter || (r.status !== "done" && r.is_overdue === true))
+  );
 
   return (
     <div className="space-y-4">
@@ -99,10 +103,10 @@ function TasksPage() {
           <h1 className="text-2xl font-bold">Tasks</h1>
           <p className="text-sm text-muted-foreground">
             Assign, transfer and collaborate on work.
-            {statusFilter && (
+            {(statusFilter || overdueFilter) && (
               <>
-                {" "}· filtered to <span className="font-medium capitalize text-foreground">{statusFilter.replace(/_/g, " ")}</span>{" "}
-                <button onClick={() => navigate({ search: { status: undefined } })} className="text-primary hover:underline">clear</button>
+                {" "}· filtered to <span className="font-medium capitalize text-foreground">{overdueFilter ? "overdue" : statusFilter?.replace(/_/g, " ")}</span>{" "}
+                <button onClick={() => navigate({ search: { status: undefined, overdue: undefined } })} className="text-primary hover:underline">clear</button>
               </>
             )}
           </p>

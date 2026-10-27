@@ -12,6 +12,9 @@ import { TaxClientChecklist, type ChecklistClientRow } from "@/components/tax-cl
 import { TaxFilingInvoiceDialog } from "@/components/tax-filing-invoice-dialog";
 
 export const Route = createFileRoute("/_authed/tax")({
+  validateSearch: (s: Record<string, unknown>) => ({
+    filter: s.filter === "open" ? "open" : undefined,
+  }),
   head: () => ({
     meta: [
       { title: "Tax | G.K Nahashon & Company" },
@@ -43,7 +46,8 @@ async function fetchAll(page: (from: number, to: number) => PromiseLike<{ data: 
 
 function TaxPage() {
   const { isAdmin, canCreate } = useAuth();
-  const [tab, setTab] = useState<(typeof TABS)[number]>("Overview");
+  const search = Route.useSearch();
+  const [tab, setTab] = useState<(typeof TABS)[number]>(search.filter === "open" ? "Filing Record" : "Overview");
   const [policies, setPolicies] = useState<any[]>([]);
   const [returns, setReturns] = useState<any[]>([]);
   const [clients, setClients] = useState<any[]>([]);
@@ -63,7 +67,7 @@ function TaxPage() {
   const [reportType, setReportType] = useState<string>("");
   const [annualYear, setAnnualYear] = useState<string>(todayNairobi().slice(0, 4));
   const [annualType, setAnnualType] = useState<string>("");
-  const [reportFilter, setReportFilter] = useState<"all" | "filed" | "not_filed">("all");
+  const [reportFilter, setReportFilter] = useState<"all" | "filed" | "not_filed">(search.filter === "open" ? "not_filed" : "all");
   const [reportAssignee, setReportAssignee] = useState("");
   const [clearRecordsClientId, setClearRecordsClientId] = useState("");
   const [clearingRecords, setClearingRecords] = useState(false);
@@ -616,24 +620,27 @@ function TaxPage() {
           {summary.map(s => {
             const expanded = expandedType === s.tax_type;
             return (
-              <button
+              <div
                 key={s.tax_type}
-                onClick={() => setExpandedType(expanded ? null : s.tax_type)}
-                className={`text-left bg-card border rounded-lg p-3 hover:border-primary/60 hover:shadow-sm transition block ${expanded ? "ring-2 ring-primary border-primary" : ""}`}
+                className={`text-left bg-card border rounded-lg p-3 transition ${expanded ? "ring-2 ring-primary border-primary" : ""}`}
               >
                 <div className="flex items-center justify-between gap-2">
-                  <div className="text-sm font-medium">{s.label}</div>
+                  <button type="button" onClick={() => setExpandedType(expanded ? null : s.tax_type)} className="text-sm font-medium hover:text-primary text-left">{s.label}</button>
                   <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground whitespace-nowrap">
                     <span className="capitalize">{s.cadence} · due {s.due_day}</span>
-                    {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                    <button type="button" onClick={() => setExpandedType(expanded ? null : s.tax_type)} aria-label={`Toggle ${s.label}`} className="hover:text-foreground">
+                      {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                    </button>
                   </div>
                 </div>
-                <div className="text-2xl font-bold mt-1">{s.open}</div>
+                <Link to="/tax/$type" params={{ type: s.tax_type }} search={{ status: "open" }} className="block text-2xl font-bold mt-1 hover:text-primary">{s.open}</Link>
                 <div className="text-xs text-muted-foreground">
-                  open · {s.obligated} client{s.obligated === 1 ? "" : "s"} obligated
-                  {s.overdue > 0 && <span className="text-destructive"> · {s.overdue} overdue</span>}
+                  <Link to="/tax/$type" params={{ type: s.tax_type }} search={{ status: "open" }} className="hover:underline">open</Link>
+                  {" · "}{s.obligated} client{s.obligated === 1 ? "" : "s"} obligated
+                  {s.overdue > 0 && <span className="text-destructive"> · <Link to="/tax/$type" params={{ type: s.tax_type }} search={{ status: "overdue" }} className="hover:underline">{s.overdue} overdue</Link></span>}
                 </div>
-              </button>
+                <Link to="/tax/$type" params={{ type: s.tax_type }} search={{ status: "filed" }} className="text-xs text-muted-foreground hover:underline">View filed</Link>
+              </div>
             );
           })}
 

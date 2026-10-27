@@ -9,7 +9,7 @@ import { DirectorCommandCentre } from "@/components/director-command-centre";
 
 export const Route = createFileRoute("/_authed/dashboard")({ component: Dashboard });
 
-function Kpi({ icon: Icon, label, value, sub, tone, to }: any) {
+function Kpi({ icon: Icon, label, value, sub, tone, to, search }: any) {
   const content = (
     <div className="bg-card rounded-lg border p-4 h-full hover:border-primary/60 hover:shadow-sm transition">
       <div className="flex items-center justify-between">
@@ -20,7 +20,7 @@ function Kpi({ icon: Icon, label, value, sub, tone, to }: any) {
       {sub && <div className="text-xs text-muted-foreground mt-1">{sub}</div>}
     </div>
   );
-  return to ? <Link to={to}>{content}</Link> : content;
+  return to ? <Link to={to} search={search}>{content}</Link> : content;
 }
 
 // ICT Service Desk alert card — shown only to the ICT service-desk team
@@ -200,11 +200,11 @@ function Dashboard() {
       {isDirector ? <DirectorCommandCentre /> : (
       <div className="dashboard-kpi-grid grid gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
         <Kpi icon={Users} label="Clients" value={stats.clients} to="/clients" />
-        <Kpi icon={Receipt} label="Pending Tax" value={stats.pending} tone="text-primary" to="/tax" />
-        <Kpi icon={AlertTriangle} label="Overdue" value={stats.overdue} tone="text-destructive" to="/tasks" />
-        <Kpi icon={CheckCircle2} label="Done Tasks" value={stats.completed} tone="text-emerald-600" to="/tasks" />
+        <Kpi icon={Receipt} label="Pending Tax" value={stats.pending} tone="text-primary" to="/tax" search={{ filter: "open" }} />
+        <Kpi icon={AlertTriangle} label="Overdue" value={stats.overdue} tone="text-destructive" to="/tasks" search={{ overdue: true }} />
+        <Kpi icon={CheckCircle2} label="Done Tasks" value={stats.completed} tone="text-emerald-600" to="/tasks" search={{ status: "done" }} />
         <Kpi icon={ClipboardCheck} label="Staff" value={stats.staff} to="/team" />
-        <Kpi icon={ListTodo} label="My Open Items" value={myOpenCount} tone="text-accent" />
+        <Kpi icon={ListTodo} label="My Open Items" value={myOpenCount} tone="text-accent" to="/tasks" />
       </div>
       )}
 

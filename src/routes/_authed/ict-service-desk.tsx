@@ -377,15 +377,15 @@ function ChecklistPanel({ ticket, controls, templates, canWork, isFull, userId, 
   );
 }
 
-function StatCard({ icon: Icon, label, value }: { icon: any; label: string; value: number }) {
+function StatCard({ icon: Icon, label, value, onClick }: { icon: any; label: string; value: number; onClick: () => void }) {
   return (
-    <div className="bg-card rounded-lg border p-4 h-full card-hover animate-fade-in-up">
+    <button type="button" onClick={onClick} className="text-left bg-card rounded-lg border p-4 h-full w-full card-hover animate-fade-in-up hover:border-primary/60">
       <div className="flex items-center justify-between">
         <span className="text-xs text-muted-foreground font-medium uppercase tracking-wider">{label}</span>
         <Icon className="h-4 w-4 text-muted-foreground" />
       </div>
       <div className="mt-2 text-2xl font-bold">{value}</div>
-    </div>
+    </button>
   );
 }
 
@@ -415,6 +415,8 @@ function IctServiceDesk() {
   const [maintenanceCount, setMaintenanceCount] = useState(0);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [typeFilter, setTypeFilter] = useState("");
+  const [priorityFilter, setPriorityFilter] = useState("");
+  const [openOnly, setOpenOnly] = useState(false);
 
   const [assets, setAssets] = useState<Asset[]>([]);
   const [assetTotalQty, setAssetTotalQty] = useState(0);
@@ -543,7 +545,12 @@ function IctServiceDesk() {
   }, [controls]);
   const nameOf: PersonLookup = (id) => (id ? allStaff.find((p) => p.id === id)?.full_name ?? "Unknown" : "—");
   const typeTitle = (key: string | null | undefined) => templates.find((t) => t.service_type === key)?.title ?? (key && key !== "general" ? key : "General");
-  const visibleTickets = typeFilter ? tickets.filter((t) => (t.service_type ?? "general") === typeFilter) : tickets;
+  const visibleTickets = tickets.filter((t) =>
+    (!typeFilter || (t.service_type ?? "general") === typeFilter) &&
+    (!priorityFilter || t.priority === priorityFilter) &&
+    (!openOnly || !["Resolved", "Closed"].includes(t.status))
+  );
+  const jumpTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
   const toggleExpanded = (id: string) => setExpanded((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const selectedTemplate = templates.find((t) => t.service_type === form.service_type);
 
@@ -591,13 +598,13 @@ function IctServiceDesk() {
       </div>
 
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
-        <StatCard icon={Ticket} label="Open Tickets" value={openCount} />
-        {fullAccess && <StatCard icon={HardDrive} label="Assets" value={assetTotalQty} />}
-        <StatCard icon={Wrench} label="Active Maintenance" value={maintenanceCount} />
-        <StatCard icon={AlertTriangle} label="Critical Issues" value={criticalCount} />
+        <StatCard icon={Ticket} label="Open Tickets" value={openCount} onClick={() => { setTypeFilter(""); setPriorityFilter(""); setOpenOnly(true); jumpTo("ict-ticket-list"); }} />
+        {fullAccess && <StatCard icon={HardDrive} label="Assets" value={assetTotalQty} onClick={() => jumpTo("ict-assets")} />}
+        <StatCard icon={Wrench} label="Active Maintenance" value={maintenanceCount} onClick={() => { setTypeFilter("maintenance"); setPriorityFilter(""); setOpenOnly(true); jumpTo("ict-ticket-list"); }} />
+        <StatCard icon={AlertTriangle} label="Critical Issues" value={criticalCount} onClick={() => { setTypeFilter(""); setPriorityFilter("Critical"); setOpenOnly(false); jumpTo("ict-ticket-list"); }} />
       </div>
 
-      <div className="bg-card border rounded-lg overflow-hidden">
+      <div id="ict-ticket-list" className="bg-card border rounded-lg overflow-hidden">
         <div className="px-4 py-3 border-b flex flex-wrap items-center justify-between gap-2">
           <span className="text-sm font-medium">{canManageTickets ? "All tickets" : "Your tickets"}</span>
           {templates.length > 0 && (
@@ -720,7 +727,7 @@ function IctServiceDesk() {
       </div>
 
       {fullAccess && (
-        <div className="bg-card border rounded-lg overflow-hidden">
+        <div id="ict-assets" className="bg-card border rounded-lg overflow-hidden">
           <div className="px-4 py-3 border-b flex items-center justify-between">
             <span className="text-sm font-medium">IT Assets</span>
             <button
