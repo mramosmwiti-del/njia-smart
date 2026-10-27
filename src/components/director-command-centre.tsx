@@ -112,11 +112,11 @@ export function DirectorCommandCentre() {
             <div className="flex items-center justify-between"><span className={labelCls}>Total Collected</span><Wallet className="h-4 w-4 text-emerald-600" /></div>
             <div className="mt-2 text-xl font-bold">{v(fin?.collected, money)}</div>
           </Link>
-          <Link to="/accounts" className={tileCls}>
+          <Link to="/accounts" search={{ filter: "outstanding" }} className={tileCls}>
             <div className="flex items-center justify-between"><span className={labelCls}>Outstanding Balance</span><TrendingUp className="h-4 w-4 text-amber-600" /></div>
             <div className="mt-2 text-xl font-bold">{v(fin?.outstanding, money)}</div>
           </Link>
-          <Link to="/accounts" className={tileCls}>
+          <Link to="/accounts" search={{ filter: "overdue" }} className={tileCls}>
             <div className="flex items-center justify-between"><span className={labelCls}>Overdue Amount</span><AlertCircle className="h-4 w-4 text-destructive" /></div>
             <div className={`mt-2 text-xl font-bold ${fin && fin.overdue > 0 ? "text-destructive" : ""}`}>{v(fin?.overdue, money)}</div>
           </Link>
