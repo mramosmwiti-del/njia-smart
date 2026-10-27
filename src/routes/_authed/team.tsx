@@ -14,7 +14,9 @@ const ROLES: AppRole[] = ["director","admin","audit_manager","tax_consultant","a
 const EMPTY = { email:"", password:"", full_name:"", department:"", phone:"", role:"accountant" as AppRole };
 
 function TeamPage() {
-  const { isAdmin } = useAuth();
+  const { isAdmin, roles } = useAuth();
+  const isDirector = roles.includes("director");
+  const canViewStaff = isAdmin || isDirector;
   const [rows, setRows] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(EMPTY);
@@ -22,15 +24,17 @@ function TeamPage() {
   const create = useServerFn(createStaff);
 
   async function load() {
+    if (!canViewStaff) return;
     const { data: profiles } = await supabase.from("profiles").select("*").order("created_at");
     const { data: roles } = await supabase.from("user_roles").select("*");
     const byUser: Record<string, string[]> = {};
     (roles ?? []).forEach((r:any)=>{ (byUser[r.user_id] ??= []).push(r.role); });
     setRows((profiles ?? []).map((p:any)=>({ ...p, roles: byUser[p.id] || [] })));
   }
-  useEffect(()=>{ load(); }, []);
+  useEffect(()=>{ load(); }, [canViewStaff]);
 
   async function setRole(userId: string, role: AppRole, on: boolean) {
+    if (!isAdmin) return;
     if (on) {
       const { error } = await supabase.from("user_roles").insert({ user_id: userId, role });
       if (error) toast.error(error.message); else { toast.success(`${ROLE_LABELS[role]} granted`); load(); }
@@ -42,6 +46,7 @@ function TeamPage() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (!isAdmin) return;
     setBusy(true);
     try {
       await create({ data: form });
@@ -51,6 +56,8 @@ function TeamPage() {
       toast.error(err.message || "Failed to create staff");
     } finally { setBusy(false); }
   }
+
+  if (!canViewStaff) return null;
 
   return (
     <div className="space-y-4">
@@ -65,7 +72,7 @@ function TeamPage() {
           </button>
         )}
       </div>
-      {!isAdmin && <div className="bg-amber-50 border border-amber-200 text-amber-900 dark:bg-amber-900/20 dark:border-amber-700 dark:text-amber-100 rounded-md p-3 text-sm">Only Directors and Admins can change roles.</div>}
+      {!isAdmin && <div className="bg-amber-50 border border-amber-200 text-amber-900 dark:bg-amber-900/20 dark:border-amber-700 dark:text-amber-100 rounded-md p-3 text-sm">Only administrators can make staff changes.</div>}
       <div className="grid gap-3">
         {rows.map(p=>{
           const label = p.full_name ? `${p.full_name}'s profile` : "View profile";
