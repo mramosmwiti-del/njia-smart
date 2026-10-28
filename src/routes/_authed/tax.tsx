@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useLiveRefresh } from "@/hooks/use-live-refresh";
@@ -1050,6 +1050,16 @@ function ChecklistChip({ active, onClick, icon: Icon, label, value, tone }: {
 }
 
 function ChecklistCell({ row, cadence, assigneeName }: { row: any; cadence: string; assigneeName?: string | null }) {
+  const navigate = useNavigate();
+  // The assignee chip opens the client's Tax tab on this obligation, where the
+  // person responsible for it can be set or changed.
+  const goAssign = (e: React.SyntheticEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!row.client_id) return;
+    navigate({ to: "/clients/$id", params: { id: row.client_id }, search: { tab: "Tax", obligation: row.return_type } });
+  };
+  const onChipKey = (e: React.KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") goAssign(e); };
   const over = periodsOverdue(row.due_date, cadence);
   const d = daysUntil(row.due_date);
   const filed = row.status === "filed";
@@ -1074,9 +1084,9 @@ function ChecklistCell({ row, cadence, assigneeName }: { row: any; cadence: stri
       )}
       {!filed && (
         initials ? (
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground" title={assigneeName ?? undefined}>{initials}</span>
+          <span role="link" tabIndex={0} onClick={goAssign} onKeyDown={onChipKey} title={`${assigneeName ?? "Assigned"} — click to change on the client profile`} className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground cursor-pointer hover:ring-1 hover:ring-primary">{initials}</span>
         ) : (
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-100 inline-flex items-center gap-0.5">
+          <span role="link" tabIndex={0} onClick={goAssign} onKeyDown={onChipKey} title="Click to assign on the client profile" className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-100 inline-flex items-center gap-0.5 cursor-pointer hover:ring-1 hover:ring-amber-500">
             <UserX className="h-2.5 w-2.5" /> Unassigned
           </span>
         )
