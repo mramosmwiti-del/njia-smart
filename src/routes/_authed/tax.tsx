@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useLiveRefresh } from "@/hooks/use-live-refresh";
 import { toast } from "sonner";
@@ -10,6 +10,7 @@ import { daysUntil, periodsOverdue, formatDate, formatDateTime } from "@/lib/for
 import { filingOpenDate, isFilingOpen, todayNairobi } from "@/lib/tax-period";
 import { TaxClientChecklist, type ChecklistClientRow } from "@/components/tax-client-checklist";
 import { TaxFilingInvoiceDialog } from "@/components/tax-filing-invoice-dialog";
+import { TaxAssignPanel } from "@/components/tax-assign-panel";
 
 export const Route = createFileRoute("/_authed/tax")({
   validateSearch: (s: Record<string, unknown>) => ({
@@ -48,6 +49,7 @@ function TaxPage() {
   const { isAdmin, canCreate } = useAuth();
   const search = Route.useSearch();
   const [tab, setTab] = useState<(typeof TABS)[number]>(search.filter === "open" ? "Filing Record" : "Overview");
+  const [assignOpenId, setAssignOpenId] = useState<string | null>(null);
   const [policies, setPolicies] = useState<any[]>([]);
   const [returns, setReturns] = useState<any[]>([]);
   const [clients, setClients] = useState<any[]>([]);
@@ -608,6 +610,24 @@ function TaxPage() {
     }))
     .filter(r => r.items.length > 0);
 
+  // Inline assignment: the assignee chip expands a panel under the row listing the
+  // team by name; picking one assigns that specific obligation right there.
+  const toggleAssign = (returnId: string) => setAssignOpenId(cur => (cur === returnId ? null : returnId));
+  const renderAssignPanel = (r: any, pol: any, clientName?: string | null) => (
+    <TaxAssignPanel
+      returnId={r.id}
+      clientId={r.client_id}
+      taxType={r.return_type}
+      value={r.assigned_to}
+      staff={staff}
+      collaboratorIds={collabByReturn.get(r.id) ?? []}
+      title={`${pol.label}${clientName ? ` — ${clientName}` : ""}`}
+      label={`${pol.label} — due ${formatDate(r.due_date)}`}
+      onChanged={() => load(true)}
+      onClose={() => setAssignOpenId(null)}
+    />
+  );
+
   function stopObligation(clientId: string, pol: any, clientName: string) {
     if (confirm(`Stop the ${pol.label} obligation for ${clientName}? Open filings stay, but nothing new is scheduled.`)) {
       toggleObligation(clientId, pol.tax_type, false);
@@ -723,14 +743,15 @@ function TaxPage() {
                     {panelRows.map(({ key, client, row }) => {
                       const docs = row ? (documentsByReturn.get(row.id) ?? []) : [];
                       return (
-                        <tr key={key} className="border-b last:border-0 hover:bg-muted/20 align-top">
+                        <Fragment key={key}>
+                        <tr className="border-b last:border-0 hover:bg-muted/20 align-top">
                           <td className="py-1.5 px-3 font-medium">{client?.company_name ?? "—"}</td>
                           <td className="py-1.5 px-3">
                             {!row ? (
                               renderMissing(client?.id, pol.tax_type)
                             ) : (
                               <Link to="/tax/$type" params={{ type: pol.tax_type }} search={{ client: client?.id }} className="inline-block hover:opacity-80">
-                                <ChecklistCell row={row} cadence={pol.cadence} assigneeName={row.assigned_to ? staffMap.get(row.assigned_to) : null} />
+                                <ChecklistCell row={row} cadence={pol.cadence} assigneeName={row.assigned_to ? staffMap.get(row.assigned_to) : null} onAssignClick={() => toggleAssign(row.id)} assignOpen={assignOpenId === row.id} />
                               </Link>
                             )}
                           </td>
@@ -749,6 +770,12 @@ function TaxPage() {
                             )}
                           </td>
                         </tr>
+                        {row && assignOpenId === row.id && (
+                          <tr className="border-b bg-muted/20">
+                            <td colSpan={3} className="px-3 py-2">{renderAssignPanel(row, pol, client?.company_name)}</td>
+                          </tr>
+                        )}
+                        </Fragment>
                       );
                     })}
                   </tbody>
@@ -787,8 +814,10 @@ function TaxPage() {
               busyId={busyCell}
               emptyHint={`No obligated clients${clientFilter || accFilter !== "all" || checklistType !== ALL_TYPES ? " match your filters" : " yet — add tax obligations from a client's Tax tab"}.`}
               renderCell={(cur, pol) => (
-                <ChecklistCell row={cur} cadence={pol.cadence} assigneeName={cur.assigned_to ? staffMap.get(cur.assigned_to) : null} />
+                <ChecklistCell row={cur} cadence={pol.cadence} assigneeName={cur.assigned_to ? staffMap.get(cur.assigned_to) : null} onAssignClick={() => toggleAssign(cur.id)} assignOpen={assignOpenId === cur.id} />
               )}
+              assignOpenId={assignOpenId}
+              renderAssignPanel={renderAssignPanel}
               renderMissing={renderMissing}
               onFileSelected={(clientId, returnIds) => setBatchFor({ clientId, returnIds })}
               onReopen={id => markFiled(id, false)}
@@ -1049,13 +1078,14 @@ function ChecklistChip({ active, onClick, icon: Icon, label, value, tone }: {
   );
 }
 
-function ChecklistCell({ row, cadence, assigneeName }: { row: any; cadence: string; assigneeName?: string | null }) {
+function ChecklistCell({ row, cadence, assigneeName, onAssignClick, assignOpen }: { row: any; cadence: string; assigneeName?: string | null; onAssignClick?: () => void; assignOpen?: boolean }) {
   const navigate = useNavigate();
-  // The assignee chip opens the client's Tax tab on this obligation, where the
-  // person responsible for it can be set or changed.
+  // The assignee chip expands the inline assign panel under this row (when the
+  // page supplies one); otherwise it falls back to the client's Tax tab.
   const goAssign = (e: React.SyntheticEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    if (onAssignClick) { onAssignClick(); return; }
     if (!row.client_id) return;
     navigate({ to: "/clients/$id", params: { id: row.client_id }, search: { tab: "Tax", obligation: row.return_type } });
   };
@@ -1084,9 +1114,9 @@ function ChecklistCell({ row, cadence, assigneeName }: { row: any; cadence: stri
       )}
       {!filed && (
         initials ? (
-          <span role="link" tabIndex={0} onClick={goAssign} onKeyDown={onChipKey} title={`${assigneeName ?? "Assigned"} — click to change on the client profile`} className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground cursor-pointer hover:ring-1 hover:ring-primary">{initials}</span>
+          <span role="link" tabIndex={0} onClick={goAssign} onKeyDown={onChipKey} title={`${assigneeName ?? "Assigned"} — click to change`} className={`text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground cursor-pointer hover:ring-1 hover:ring-primary ${assignOpen ? "ring-1 ring-primary" : ""}`}>{assigneeName ?? initials}</span>
         ) : (
-          <span role="link" tabIndex={0} onClick={goAssign} onKeyDown={onChipKey} title="Click to assign on the client profile" className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-100 inline-flex items-center gap-0.5 cursor-pointer hover:ring-1 hover:ring-amber-500">
+          <span role="link" tabIndex={0} onClick={goAssign} onKeyDown={onChipKey} title="Click to assign" className={`text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-100 inline-flex items-center gap-0.5 cursor-pointer hover:ring-1 hover:ring-amber-500 ${assignOpen ? "ring-1 ring-amber-500" : ""}`}>
             <UserX className="h-2.5 w-2.5" /> Unassigned
           </span>
         )
