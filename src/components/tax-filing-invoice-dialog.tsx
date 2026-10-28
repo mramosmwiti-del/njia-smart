@@ -10,7 +10,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 export type FilingBatchItem = {
   returnId: string;
   label: string;             // e.g. "PAYE"
-  periodLabel: string;       // e.g. "period ending 31 Oct 2026"
+  periodLabel: string;       // e.g. "due 9 Nov 2026"
+  dueDate?: string | null;   // used for the invoice description month
   hasReceipt: boolean;       // a filing receipt is already attached
   invoiceId?: string | null; // already linked to an invoice (e.g. a retry)
 };
@@ -43,6 +44,13 @@ export function TaxFilingInvoiceDialog({
 
   const toInvoice = useMemo(() => items.filter(i => !i.invoiceId), [items]);
   const total = toInvoice.reduce((sum, i) => sum + (Number(amounts[i.returnId]) || 0), 0);
+
+  // Same wording the database stamps on the invoice (invoices.memo).
+  const monthOf = (d: string) => new Date(`${d.slice(0, 7)}-01T00:00:00`).toLocaleDateString("en-GB", { month: "short", year: "numeric" });
+  const months = items.map(i => i.dueDate?.slice(0, 10)).filter(Boolean).sort() as string[];
+  const description = items.length
+    ? `Tax filings: ${items.map(i => i.label).join(", ")}${months.length ? ` - ${monthOf(months[0]) === monthOf(months[months.length - 1]) ? monthOf(months[0]) : `${monthOf(months[0])} to ${monthOf(months[months.length - 1])}`}` : ""}`
+    : "";
 
   async function submit() {
     if (toInvoice.length) {
@@ -124,8 +132,13 @@ export function TaxFilingInvoiceDialog({
               </div>
             ))}
           </div>
+          {description && (
+            <div className="text-xs text-muted-foreground border-t pt-2">
+              <span className="font-medium text-foreground">Invoice description: </span>{description}
+            </div>
+          )}
           {toInvoice.length > 0 && (
-            <div className="flex justify-between text-sm border-t pt-2">
+            <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Invoice total (before VAT)</span>
               <span className="font-semibold">KES {total.toLocaleString("en-KE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
             </div>
