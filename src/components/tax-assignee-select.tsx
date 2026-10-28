@@ -7,6 +7,37 @@ import { formatDateTime } from "@/lib/format";
 type Staff = { id: string; full_name: string | null };
 
 /**
+ * Assign (or unassign) a tax filing. Shared by the dropdown below and the
+ * inline assign panel on the Tax page so both behave identically.
+ * Resolves true when the assignment was saved.
+ */
+export async function assignTaxReturn(
+  returnId: string, newId: string | null, currentUserId?: string | null, label?: string,
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("tax_returns")
+    .update({ assigned_to: newId } as any)
+    .eq("id", returnId)
+    .select("id");
+  if (error) { toast.error(error.message); return false; }
+  if (!data || data.length === 0) {
+    toast.error("You don't have permission to assign this filing.");
+    return false;
+  }
+  if (newId && newId !== currentUserId) {
+    await supabase.from("notifications").insert({
+      user_id: newId,
+      type: "tax",
+      title: "Tax filing assigned to you",
+      body: label ?? "You've been assigned a tax filing.",
+      link: "/tax",
+    } as any);
+  }
+  toast.success(newId ? "Assigned" : "Unassigned");
+  return true;
+}
+
+/**
  * Inline "who is this filing assigned to" control. One place for the
  * assignment logic so the Checklist, the per-type page and the client's Tax
  * tab all behave identically:
@@ -30,30 +61,10 @@ export function TaxAssigneeSelect({
   const [busy, setBusy] = useState(false);
 
   async function change(next: string) {
-    const newId = next || null;
     setBusy(true);
-    const { data, error } = await supabase
-      .from("tax_returns")
-      .update({ assigned_to: newId } as any)
-      .eq("id", returnId)
-      .select("id");
+    const ok = await assignTaxReturn(returnId, next || null, user?.id, label);
     setBusy(false);
-    if (error) { toast.error(error.message); return; }
-    if (!data || data.length === 0) {
-      toast.error("You don't have permission to assign this filing.");
-      return;
-    }
-    if (newId && newId !== user?.id) {
-      await supabase.from("notifications").insert({
-        user_id: newId,
-        type: "tax",
-        title: "Tax filing assigned to you",
-        body: label ?? "You've been assigned a tax filing.",
-        link: "/tax",
-      } as any);
-    }
-    toast.success(newId ? "Assigned" : "Unassigned");
-    onChanged();
+    if (ok) onChanged();
   }
 
   return (

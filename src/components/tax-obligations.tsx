@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Plus, Trash2, Upload, Download, Receipt, ChevronDown, ChevronRight, FileText } from "lucide-react";
 import { formatDate, formatDateTime, daysUntil, STATUS_COLORS, statusLabel } from "@/lib/format";
 import { TaxAssigneeSelect } from "@/components/tax-assignee-select";
+import { useLiveRefresh } from "@/hooks/use-live-refresh";
 import { CompletionInvoiceDialog } from "@/components/completion-invoice-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -71,6 +72,8 @@ export function TaxObligations({ clientId, hideAdd = false, reloadKey, focusType
     setInvoices(Object.fromEntries((inv.data ?? []).map((i: any) => [i.id, i])));
   }
   useEffect(() => { load(); }, [clientId, reloadKey]);
+  // Assignments made from the Tax page show up here without a reload.
+  useLiveRefresh(["tax_returns", "tax_return_assignees"], () => load());
 
   // Arriving from a deep link (e.g. the assignee chip on the Tax page): bring
   // that obligation into view once, so it can be assigned straight away.
@@ -225,6 +228,18 @@ export function TaxObligations({ clientId, hideAdd = false, reloadKey, focusType
                     {r.period_end && <span className="text-muted-foreground"> · period ending {formatDate(r.period_end)}</span>}
                     {d !== null && d < 0 && <span className="ml-2 text-xs text-destructive">{Math.abs(d)}d overdue</span>}
                     {d !== null && d >= 0 && d <= 3 && <span className="ml-2 text-xs text-accent">due in {d}d</span>}
+                    {(() => {
+                      const names = [...new Set([r.assigned_to, ...(collabs[r.id] ?? [])].filter(Boolean) as string[])]
+                        .map(id => staff.find(s => s.id === id)?.full_name ?? "Unknown");
+                      return (
+                        <div className="text-xs mt-0.5">
+                          <span className="text-muted-foreground">Assigned to: </span>
+                          {names.length
+                            ? <span className="font-medium">{names.join(", ")}</span>
+                            : <span className="text-amber-700 dark:text-amber-300">Unassigned</span>}
+                        </div>
+                      );
+                    })()}
                   </div>
                   <div className="flex items-center gap-2">
                     <TaxAssigneeSelect

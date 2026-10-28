@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { Fragment, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { Receipt } from "lucide-react";
 import { formatDate } from "@/lib/format";
@@ -15,7 +15,7 @@ export type ChecklistClientRow = {
  * and raise ONE invoice for the client.
  */
 export function TaxClientChecklist({
-  rows, isAdmin, busyId, emptyHint, renderCell, renderMissing, onFileSelected, onReopen, onStop,
+  rows, isAdmin, busyId, emptyHint, renderCell, renderMissing, onFileSelected, onReopen, onStop, assignOpenId, renderAssignPanel,
 }: {
   rows: ChecklistClientRow[];
   isAdmin: boolean;
@@ -26,6 +26,9 @@ export function TaxClientChecklist({
   onFileSelected: (clientId: string, returnIds: string[]) => void;
   onReopen: (returnId: string) => void;
   onStop: (clientId: string, pol: any, clientName: string) => void;
+  /** Return whose inline assign panel is open (expands under the client entry). */
+  assignOpenId?: string | null;
+  renderAssignPanel?: (cur: any, pol: any, clientName: string) => ReactNode;
 }) {
   // returnIds ticked per client
   const [picked, setPicked] = useState<Record<string, string[]>>({});
@@ -53,7 +56,8 @@ export function TaxClientChecklist({
             const ids = (picked[client.id] ?? []).filter(id => items.some(it => it.cur?.id === id && fileable(it.cur, it.pol)));
             const selectable = items.filter(it => fileable(it.cur, it.pol)).map(it => it.cur.id as string);
             return (
-              <tr key={client.id} className="border-b last:border-0 align-top hover:bg-muted/20">
+              <Fragment key={client.id}>
+              <tr className="border-b last:border-0 align-top hover:bg-muted/20">
                 <td className="py-2 px-3 font-medium">{client.company_name}</td>
                 <td className="py-2 px-3">
                   <div className="flex flex-wrap gap-2">
@@ -111,6 +115,12 @@ export function TaxClientChecklist({
                   )}
                 </td>
               </tr>
+              {renderAssignPanel && items.map(({ pol, cur }) => cur && assignOpenId === cur.id ? (
+                <tr key={`assign-${cur.id}`} className="border-b bg-muted/20">
+                  <td colSpan={3} className="px-3 py-2">{renderAssignPanel(cur, pol, client.company_name)}</td>
+                </tr>
+              ) : null)}
+              </Fragment>
             );
           })}
         </tbody>
