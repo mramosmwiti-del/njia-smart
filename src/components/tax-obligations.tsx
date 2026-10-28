@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -20,7 +20,7 @@ function money(n: number) {
   return "KES " + Number(n || 0).toLocaleString("en-KE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-export function TaxObligations({ clientId, hideAdd = false, reloadKey }: { clientId: string; hideAdd?: boolean; reloadKey?: unknown }) {
+export function TaxObligations({ clientId, hideAdd = false, reloadKey, focusType }: { clientId: string; hideAdd?: boolean; reloadKey?: unknown; focusType?: string }) {
   const { user, isAdmin, canCreate, canDelete } = useAuth();
   const [rows, setRows] = useState<any[]>([]);
   const [policies, setPolicies] = useState<any[]>([]);
@@ -71,6 +71,15 @@ export function TaxObligations({ clientId, hideAdd = false, reloadKey }: { clien
     setInvoices(Object.fromEntries((inv.data ?? []).map((i: any) => [i.id, i])));
   }
   useEffect(() => { load(); }, [clientId, reloadKey]);
+
+  // Arriving from a deep link (e.g. the assignee chip on the Tax page): bring
+  // that obligation into view once, so it can be assigned straight away.
+  const scrolledTo = useRef<string | null>(null);
+  useEffect(() => {
+    if (!focusType || rows.length === 0 || scrolledTo.current === focusType) return;
+    const el = document.getElementById(`obligation-${focusType}`);
+    if (el) { scrolledTo.current = focusType; el.scrollIntoView({ behavior: "smooth", block: "center" }); }
+  }, [focusType, rows]);
 
   const byType = useMemo(() => {
     const groups: Record<string, { active: any[]; history: any[] }> = {};
@@ -200,7 +209,7 @@ export function TaxObligations({ clientId, hideAdd = false, reloadKey }: { clien
         const g = byType[type];
         const isOpen = expanded[type] ?? g.active.length === 0;
         return (
-          <div key={type} className="bg-card border rounded-lg overflow-hidden">
+          <div key={type} id={`obligation-${type}`} className={`bg-card border rounded-lg overflow-hidden ${focusType === type ? "ring-2 ring-primary" : ""}`}>
             <div className="px-4 py-3 flex items-center justify-between border-b bg-muted/30">
               <div className="font-medium text-sm">{typeLabel(type)}</div>
               <div className="text-xs text-muted-foreground">{g.history.length} filed · {g.active.length} open</div>
