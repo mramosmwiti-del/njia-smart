@@ -6,7 +6,6 @@ import { Plus, Trash2, Upload, Download, Receipt, ChevronDown, ChevronRight, Fil
 import { formatDate, formatDateTime, daysUntil, STATUS_COLORS, statusLabel } from "@/lib/format";
 import { TaxAssigneeSelect } from "@/components/tax-assignee-select";
 import { useLiveRefresh } from "@/hooks/use-live-refresh";
-import { CompletionInvoiceDialog } from "@/components/completion-invoice-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,6 +18,181 @@ const STATUSES = ["pending", "in_progress", "filed"];
 
 function money(n: number) {
   return "KES " + Number(n || 0).toLocaleString("en-KE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+
+type TaxInvoiceRow = {
+  id: string;
+  return_type: string;
+  period_end?: string | null;
+  due_date?: string | null;
+};
+
+function TaxFilingInvoiceDialog({
+  open,
+  onOpenChange,
+  rows,
+  currentRow,
+  typeLabel,
+  onCompleted,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  rows: TaxInvoiceRow[];
+  currentRow: TaxInvoiceRow;
+  typeLabel: (type: string) => string;
+  onCompleted: () => Promise<void>;
+}) {
+  const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [amounts, setAmounts] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    const nextSelected: Record<string, boolean> = {};
+    const nextAmounts: Record<string, string> = {};
+    rows.forEach(r => {
+      nextSelected[r.id] = r.id === currentRow.id;
+      nextAmounts[r.id] = "";
+    });
+    setSelected(nextSelected);
+    setAmounts(nextAmounts);
+  }, [open, currentRow.id, rows]);
+
+  const selectedRows = rows.filter(r => selected[r.id]);
+
+  async function submit() {
+    if (selectedRows.length === 0) {
+      toast.error("Select at least one obligation.");
+      return;
+    }
+
+    const items = selectedRows.map(r => ({
+      return_id: r.id,
+      description: `${typeLabel(r.return_type)} filing${r.period_end ? ` — period ending ${formatDate(r.period_end)}` : ""}`,
+      amount: Number(amounts[r.id]) || 0,
+    }));
+
+    if (items.some(item => item.amount <= 0)) {
+      toast.error("Enter an amount for every selected obligation.");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const { data, error } = await supabase.rpc("create_tax_filing_invoice" as any, {
+        _items: items,
+        _vat_rate: 16,
+      } as any);
+
+      if (error || !data) {
+        throw error ?? new Error("Could not create the tax invoice.");
+      }
+
+      // The monthly invoice migration returns an object; older versions returned
+      // only the invoice UUID. Accept both so this UI remains compatible while
+      // migrations are being rolled out.
+      const invoiceId = typeof data === "string" ? data : data.invoice_id;
+      if (!invoiceId) throw new Error("Invoice was created but its ID was not returned.");
+
+      // The invoice/link is created first, then the selected filings are completed.
+      // The database guard requires that invoice_id already exists.
+      for (const row of selectedRows) {
+        const { error: statusError } = await supabase
+          .from("tax_returns")
+          .update({ status: "filed" })
+          .eq("id", row.id);
+        if (statusError) throw statusError;
+      }
+
+      toast.success(
+        selectedRows.length > 1
+          ? `${selectedRows.length} obligations filed on one invoice`
+          : "Obligation filed and invoice generated"
+      );
+      onOpenChange(false);
+      await onCompleted();
+    } catch (e: any) {
+      toast.error(e?.message ?? "Could not generate the tax invoice.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={o => !busy && onOpenChange(o)}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Invoice & file tax obligations</DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          <p className="text-xs text-muted-foreground">
+            Select the obligations you want to file together. Selected obligations are added as
+            separate invoice lines for this client. If this client already has a draft tax invoice
+            from this month, new filings are added to that same invoice automatically.
+          </p>
+
+          <div className="border rounded-lg overflow-hidden">
+            <div className="grid grid-cols-[auto_1fr_140px] gap-3 px-3 py-2 bg-muted/40 text-xs font-medium">
+              <span />
+              <span>Tax obligation</span>
+              <span className="text-right">Amount (KES)</span>
+            </div>
+
+            {rows.map(row => (
+              <label
+                key={row.id}
+                className="grid grid-cols-[auto_1fr_140px] gap-3 items-center px-3 py-2.5 border-t cursor-pointer hover:bg-muted/20"
+              >
+                <input
+                  type="checkbox"
+                  checked={!!selected[row.id]}
+                  onChange={e => setSelected(s => ({ ...s, [row.id]: e.target.checked }))}
+                  disabled={busy}
+                />
+                <span className="text-sm">
+                  <span className="font-medium">{typeLabel(row.return_type)}</span>
+                  {row.period_end && (
+                    <span className="block text-xs text-muted-foreground">
+                      Period ending {formatDate(row.period_end)}
+                    </span>
+                  )}
+                </span>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={amounts[row.id] ?? ""}
+                  onChange={e => setAmounts(a => ({ ...a, [row.id]: e.target.value }))}
+                  onClick={e => e.stopPropagation()}
+                  disabled={busy || !selected[row.id]}
+                  placeholder="0.00"
+                  className="h-8 text-right"
+                />
+              </label>
+            ))}
+          </div>
+
+          <div className="rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+            <strong className="text-foreground">Monthly billing:</strong> you can file one
+            obligation today and another later in the same month. As long as the month's tax
+            invoice is still a draft, the later obligation will be added to that same invoice.
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
+            Cancel
+          </Button>
+          <Button onClick={submit} disabled={busy}>
+            <Receipt className="h-3.5 w-3.5 mr-1" />
+            {busy ? "Working…" : `Generate invoice & file (${selectedRows.length})`}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 export function TaxObligations({ clientId, hideAdd = false, reloadKey, focusType }: { clientId: string; hideAdd?: boolean; reloadKey?: unknown; focusType?: string }) {
@@ -324,13 +498,13 @@ export function TaxObligations({ clientId, hideAdd = false, reloadKey, focusType
       })}
 
       {invoiceFor && (
-        <CompletionInvoiceDialog
+        <TaxFilingInvoiceDialog
           open
+          currentRow={invoiceFor}
+          rows={rows.filter(r => r.status !== "filed" && !r.invoice_id)}
+          typeLabel={typeLabel}
           onOpenChange={o => { if (!o) setInvoiceFor(null); }}
-          source="tax_returns"
-          sourceId={invoiceFor.id}
-          defaultDescription={`${typeLabel(invoiceFor.return_type)} filing — period ending ${formatDate(invoiceFor.period_end)}`}
-          onInvoiced={async () => { await setStatus(invoiceFor.id, "filed", true); setInvoiceFor(null); }}
+          onCompleted={async () => { setInvoiceFor(null); await load(); }}
         />
       )}
 
