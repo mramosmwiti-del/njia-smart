@@ -16,7 +16,15 @@ import { ObligationContacts } from "@/components/obligation-contacts";
 import { TaxObligations } from "@/components/tax-obligations";
 import { LastUpdated } from "@/components/last-updated";
 
-export const Route = createFileRoute("/_authed/clients/$id")({ component: ClientDetail });
+export const Route = createFileRoute("/_authed/clients/$id")({
+  // Optional deep link: ?tab=Tax&obligation=vat opens that tab and scrolls to
+  // that obligation (used by the assignee chip on the Tax pages).
+  validateSearch: (s: Record<string, unknown>): { tab?: string; obligation?: string } => ({
+    ...(typeof s.tab === "string" ? { tab: s.tab } : {}),
+    ...(typeof s.obligation === "string" ? { obligation: s.obligation } : {}),
+  }),
+  component: ClientDetail,
+});
 
 const TABS = ["Overview","Tax","Audit","Advisory","Documents","Tasks"] as const;
 const TASK_PRIORITIES = ["low","normal","high","urgent"];
@@ -26,7 +34,10 @@ function ClientDetail() {
   const navigate = useNavigate();
   const { isAdmin } = useAuth();
   const [client, setClient] = useState<any>(null);
-  const [tab, setTab] = useState<typeof TABS[number]>("Overview");
+  const search = Route.useSearch();
+  const [tab, setTab] = useState<typeof TABS[number]>(
+    (TABS as readonly string[]).includes(search.tab ?? "") ? (search.tab as typeof TABS[number]) : "Overview"
+  );
   const [related, setRelated] = useState<any>({ tax: [], engagements: [], advisory: [], docs: [], tasks: [], contacts: [] });
   const [taxPolicies, setTaxPolicies] = useState<any[]>([]);
   const [obligations, setObligations] = useState<any[]>([]);
@@ -432,7 +443,7 @@ function ClientDetail() {
       )}
       {tab === "Tax" && (
         <div className="space-y-3">
-          <TabSection label="tax obligation" onAdd={() => openAdd("tax")}><TaxObligations clientId={id} hideAdd reloadKey={related.tax} /></TabSection>
+          <TabSection label="tax obligation" onAdd={() => openAdd("tax")}><TaxObligations clientId={id} hideAdd reloadKey={related.tax} focusType={search.obligation} /></TabSection>
           {obligations.length > 0 && (
             <div className="space-y-2">
               {obligations.map(o => {
