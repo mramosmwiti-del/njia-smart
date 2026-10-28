@@ -11,6 +11,7 @@ import { filingOpenDate, isFilingOpen, todayNairobi } from "@/lib/tax-period";
 import { TaxClientChecklist, type ChecklistClientRow } from "@/components/tax-client-checklist";
 import { TaxFilingInvoiceDialog } from "@/components/tax-filing-invoice-dialog";
 import { TaxAssignPanel } from "@/components/tax-assign-panel";
+import { TaxInvoicePreviewDialog } from "@/components/tax-invoice-preview";
 
 export const Route = createFileRoute("/_authed/tax")({
   validateSearch: (s: Record<string, unknown>) => ({
@@ -50,6 +51,8 @@ function TaxPage() {
   const search = Route.useSearch();
   const [tab, setTab] = useState<(typeof TABS)[number]>(search.filter === "open" ? "Filing Record" : "Overview");
   const [assignOpenId, setAssignOpenId] = useState<string | null>(null);
+  const [viewInvoiceId, setViewInvoiceId] = useState<string | null>(null);
+  const pendingInvoiceId = useRef<string | null>(null); // shown once the filing dialog closes
   // Filing Record: returns ticked "filed", and the month being worked on ("" = all months).
   const [recordTicks, setRecordTicks] = useState<string[]>([]);
   const [reportMonth, setReportMonth] = useState("");
@@ -100,7 +103,7 @@ function TaxPage() {
     setObligations(o as any[]);
     const invoiceIds = [...new Set((r as any[]).map((row: any) => row.invoice_id).filter(Boolean) as string[])];
     const invoiceRows = invoiceIds.length
-      ? await fetchAll((a, b) => supabase.from("invoices").select("id, invoice_number, total").in("id", invoiceIds).order("id").range(a, b))
+      ? await fetchAll((a, b) => supabase.from("invoices").select("id, invoice_number, total, status").in("id", invoiceIds).order("id").range(a, b))
       : [];
     setInvoicesById(new Map((invoiceRows as any[]).map((invoice: any) => [invoice.id, invoice])));
     const returnIds = r.map((row: any) => row.id);
@@ -914,7 +917,7 @@ function TaxPage() {
           </div>
 
           <div className="bg-card border rounded-lg max-h-[70vh] overflow-auto">
-            <table className="w-full min-w-[900px] table-fixed text-xs">
+            <table className="w-full min-w-[1040px] table-fixed text-xs">
               <thead className="bg-muted text-left text-xs text-muted-foreground border-b">
                 <tr>
                   <th className="sticky top-0 left-0 z-40 w-[135px] bg-muted py-2 px-2 whitespace-normal break-words">Client</th>
@@ -925,10 +928,11 @@ function TaxPage() {
                   <th className="sticky top-0 z-30 w-[125px] bg-muted py-2 px-1.5 whitespace-normal break-words">Assigned to</th>
                   <th className="sticky top-0 z-30 w-[105px] bg-muted py-2 px-1.5 whitespace-normal break-words">Filed on</th>
                   <th className="sticky top-0 z-30 w-[180px] bg-muted py-2 px-1.5 whitespace-normal break-words">Receipt / proof</th>
+                  <th className="sticky top-0 z-30 w-[140px] bg-muted py-2 px-1.5 whitespace-normal break-words">Invoice</th>
                 </tr>
               </thead>
               <tbody>
-                {groupedFilteredReportRows.length === 0 && <tr><td colSpan={8} className="py-8 text-center text-muted-foreground">No obligations match this view.</td></tr>}
+                {groupedFilteredReportRows.length === 0 && <tr><td colSpan={9} className="py-8 text-center text-muted-foreground">No obligations match this view.</td></tr>}
                 {groupedFilteredReportRows.map(group => (
                   <tr key={group.key} className="border-b last:border-0 hover:bg-muted/20 align-top">
                     <td className="sticky left-0 z-10 bg-card py-2 px-2 font-medium whitespace-normal break-words align-top">
@@ -1011,6 +1015,19 @@ function TaxPage() {
                         </label>
                       </> : <span className="text-muted-foreground">No filing period</span>}
                     </div>)}</div></td>
+                    <td className="py-1.5 px-1.5 align-top"><div className="divide-y divide-border/70">{group.rows.map(row => {
+                      const invoice = row.cur?.invoice_id ? invoicesById.get(row.cur.invoice_id) : null;
+                      return (
+                        <div key={row.key} className="min-h-10 py-2 whitespace-normal break-words">
+                          {invoice ? (
+                            <button type="button" onClick={() => setViewInvoiceId(invoice.id)} className="text-left text-[11px] text-primary hover:underline" title="View invoice">
+                              <div className="font-medium">{invoice.invoice_number}</div>
+                              <div className="text-muted-foreground">KES {Number(invoice.total || 0).toLocaleString("en-KE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{invoice.status ? ` · ${invoice.status}` : ""}</div>
+                            </button>
+                          ) : <span className="text-muted-foreground">—</span>}
+                        </div>
+                      );
+                    })}</div></td>
                   </tr>
                 ))}
               </tbody>
@@ -1089,10 +1106,15 @@ function TaxPage() {
         </div>
       )}
 
+      <TaxInvoicePreviewDialog invoiceId={viewInvoiceId} onOpenChange={o => { if (!o) setViewInvoiceId(null); }} />
       {batchFor && (
         <TaxFilingInvoiceDialog
           open
-          onOpenChange={o => { if (!o) setBatchFor(null); }}
+          onOpenChange={o => {
+            if (o) return;
+            setBatchFor(null);
+            if (pendingInvoiceId.current) { setViewInvoiceId(pendingInvoiceId.current); pendingInvoiceId.current = null; }
+          }}
           clientId={batchFor.clientId}
           clientName={clients.find((x: any) => x.id === batchFor.clientId)?.company_name}
           items={batchFor.returnIds
@@ -1107,6 +1129,7 @@ function TaxPage() {
               invoiceId: r.invoice_id,
             }))}
           onUploadReceipt={(returnId, clientId, file) => uploadReceipt(returnId, clientId, file)}
+          onInvoiceCreated={id => { pendingInvoiceId.current = id; }}
           onDone={async () => { setRecordTicks(t => t.filter(id => !batchFor.returnIds.includes(id))); await load(true); }}
         />
       )}
