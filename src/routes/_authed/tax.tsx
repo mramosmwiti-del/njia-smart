@@ -3,7 +3,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useLiveRefresh } from "@/hooks/use-live-refresh";
 import { toast } from "sonner";
-import { AlertTriangle, Clock, UserX, LayoutGrid, Check, ChevronDown, ChevronUp, Download, Upload, FileText, Trash2 } from "lucide-react";
+import { AlertTriangle, Clock, UserX, LayoutGrid, Check, ChevronDown, ChevronUp, Download, Upload, FileText, Trash2, Receipt } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { CompletionInvoiceDialog } from "@/components/completion-invoice-dialog";
 import { daysUntil, periodsOverdue, formatDate, formatDateTime } from "@/lib/format";
@@ -50,6 +50,9 @@ function TaxPage() {
   const search = Route.useSearch();
   const [tab, setTab] = useState<(typeof TABS)[number]>(search.filter === "open" ? "Filing Record" : "Overview");
   const [assignOpenId, setAssignOpenId] = useState<string | null>(null);
+  // Filing Record: returns ticked "filed", and the month being worked on ("" = all months).
+  const [recordTicks, setRecordTicks] = useState<string[]>([]);
+  const [reportMonth, setReportMonth] = useState("");
   const [policies, setPolicies] = useState<any[]>([]);
   const [returns, setReturns] = useState<any[]>([]);
   const [clients, setClients] = useState<any[]>([]);
@@ -310,19 +313,31 @@ function TaxPage() {
     return rows;
   }, [filteredClients, activePolicies, reportType, obligationMap, returnsByKey]);
 
+  const reportMonthOptions = useMemo(
+    () => [...new Set(reportRows.map(r => (r.cur?.due_date ?? "").slice(0, 7)).filter(Boolean))].sort().reverse(),
+    [reportRows]
+  );
+
   const assigneeScopedReportRows = useMemo(() => reportRows.filter(row => {
+    if (reportMonth && (row.cur?.due_date ?? "").slice(0, 7) !== reportMonth) return false;
     if (!reportAssignee) return true;
     const assignedIds = row.cur
       ? [...new Set([row.cur.assigned_to, ...(collabByReturn.get(row.cur.id) ?? [])].filter(Boolean) as string[])]
       : [];
     if (reportAssignee === "__unassigned__") return assignedIds.length === 0;
     return assignedIds.includes(reportAssignee);
-  }), [reportRows, reportAssignee, collabByReturn]);
+  }), [reportRows, reportAssignee, reportMonth, collabByReturn]);
 
   const filteredReportRows = useMemo(
     () => assigneeScopedReportRows.filter(row => reportFilter === "all" || (reportFilter === "filed" ? row.filed : !row.filed)),
     [assigneeScopedReportRows, reportFilter]
   );
+
+  // A return can be ticked "filed" once its filing window has opened (the due date
+  // itself never blocks filing - only the month does).
+  const rowTickable = (row: any) => !!row.cur && !row.filed && isFilingOpen(row.cur.due_date, row.pol.cadence);
+  const toggleTick = (returnId: string, on: boolean) =>
+    setRecordTicks(t => (on ? [...new Set([...t, returnId])] : t.filter(id => id !== returnId)));
 
   const groupedFilteredReportRows = useMemo(() => {
     const groups: { key: string; client: any; rows: typeof filteredReportRows }[] = [];
@@ -846,6 +861,15 @@ function TaxPage() {
                 {staff.map(person => <option key={person.id} value={person.id}>{person.full_name || "Unnamed staff"}</option>)}
               </select>
             </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mr-2">Month</label>
+              <select value={reportMonth} onChange={e => setReportMonth(e.target.value)} className="h-9 px-3 rounded-md border bg-background text-sm min-w-[150px]">
+                <option value="">All months</option>
+                {reportMonthOptions.map(m => (
+                  <option key={m} value={m}>{new Date(`${m}-01T00:00:00`).toLocaleDateString("en-GB", { month: "long", year: "numeric" })}</option>
+                ))}
+              </select>
+            </div>
             {isAdmin && (
               <div className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/30 p-2">
                 <select
@@ -907,7 +931,35 @@ function TaxPage() {
                 {groupedFilteredReportRows.length === 0 && <tr><td colSpan={8} className="py-8 text-center text-muted-foreground">No obligations match this view.</td></tr>}
                 {groupedFilteredReportRows.map(group => (
                   <tr key={group.key} className="border-b last:border-0 hover:bg-muted/20 align-top">
-                    <td className="sticky left-0 z-10 bg-card py-2 px-2 font-medium whitespace-normal break-words align-top">{group.client.company_name}</td>
+                    <td className="sticky left-0 z-10 bg-card py-2 px-2 font-medium whitespace-normal break-words align-top">
+                      {group.client.company_name}
+                      {(() => {
+                        const tickable = group.rows.filter(rowTickable).map(r => r.cur.id as string);
+                        if (tickable.length === 0) return null;
+                        const ticked = tickable.filter(id => recordTicks.includes(id));
+                        return (
+                          <div className="mt-2 space-y-1 font-normal">
+                            <button
+                              type="button"
+                              disabled={ticked.length === 0}
+                              onClick={() => setBatchFor({ clientId: group.client.id, returnIds: ticked })}
+                              className="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-[10px] font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              <Receipt className="h-3 w-3 shrink-0" /> File ticked ({ticked.length}) &amp; invoice
+                            </button>
+                            <div>
+                              <button
+                                type="button"
+                                className="text-[10px] text-muted-foreground underline hover:text-foreground"
+                                onClick={() => setRecordTicks(t => ticked.length === tickable.length ? t.filter(id => !tickable.includes(id)) : [...new Set([...t, ...tickable])])}
+                              >
+                                {ticked.length === tickable.length ? "Clear ticks" : "Tick all open"}
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </td>
                     <td className="py-1.5 px-2 align-top">
                       <div className="divide-y divide-border/70">
                         {group.rows.map(row => <div key={row.key} className="min-h-10 py-2 whitespace-normal break-words font-medium">{row.pol.label}</div>)}
@@ -919,7 +971,19 @@ function TaxPage() {
                           {row.filed ? (
                             <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200"><Check className="h-3 w-3 shrink-0" /> Filed</span>
                           ) : (
-                            <span className="inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-800 dark:bg-amber-900/30 dark:text-amber-100">Not filed</span>
+                            <span className="inline-flex items-center gap-1.5">
+                              {row.cur && (
+                                <input
+                                  type="checkbox"
+                                  aria-label={`Mark ${row.pol.label} filed`}
+                                  disabled={!rowTickable(row)}
+                                  checked={rowTickable(row) && recordTicks.includes(row.cur.id)}
+                                  onChange={e => toggleTick(row.cur.id, e.target.checked)}
+                                  title={rowTickable(row) ? "Tick to file with this client's other obligations" : `Opens for filing on ${formatDate(filingOpenDate(row.cur.due_date, row.pol.cadence))}`}
+                                />
+                              )}
+                              <span className="inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-800 dark:bg-amber-900/30 dark:text-amber-100">Not filed</span>
+                            </span>
                           )}
                         </div>)}
                       </div>
@@ -952,7 +1016,7 @@ function TaxPage() {
               </tbody>
             </table>
           </div>
-          <p className="text-xs text-muted-foreground">Each client appears once, with their obligations and filing periods grouped together. Filter by type, client, or assignee above. A receipt/proof of submission must be uploaded before a return can be marked filed; click a receipt name to download it.</p>
+          <p className="text-xs text-muted-foreground">Each client appears once, with their obligations and filing periods grouped together. Filter by type, client, or assignee above. Tick the obligations being filed, then use “File ticked” on the client to enter the amount for each and generate one invoice. A receipt/proof of submission is required for each; click a receipt name to download it.</p>
         </div>
       )}
 
@@ -1037,12 +1101,13 @@ function TaxPage() {
             .map((r: any) => ({
               returnId: r.id,
               label: policies.find((x: any) => x.tax_type === r.return_type)?.label ?? r.return_type,
-              periodLabel: `period ending ${formatDate(r.period_end)}`,
+              periodLabel: r.period_end ? `period ending ${formatDate(r.period_end)}` : `due ${formatDate(r.due_date)}`,
+              dueDate: r.due_date,
               hasReceipt: !!documentsByReturn.get(r.id)?.length,
               invoiceId: r.invoice_id,
             }))}
           onUploadReceipt={(returnId, clientId, file) => uploadReceipt(returnId, clientId, file)}
-          onDone={() => load(true)}
+          onDone={async () => { setRecordTicks(t => t.filter(id => !batchFor.returnIds.includes(id))); await load(true); }}
         />
       )}
       {invoiceFor && (
