@@ -33,7 +33,7 @@ const ACCENT: Record<State, string> = {
  * (tick + File selected) is done from the Filing Record tab.
  */
 export function TaxClientChecklist({
-  rows, isAdmin, emptyHint, renderCell, renderMissing, onReopen, onStop, assignOpenId, renderAssignPanel,
+  rows, isAdmin, emptyHint, renderCell, renderMissing, onReopen, onStop, assignOpenId, renderAssignPanel, onToggleAssign,
 }: {
   rows: ChecklistClientRow[];
   isAdmin: boolean;
@@ -45,6 +45,8 @@ export function TaxClientChecklist({
   /** Return whose inline assign panel is open (expands under the client entry). */
   assignOpenId?: string | null;
   renderAssignPanel?: (cur: any, pol: any, clientName: string) => ReactNode;
+  /** Click handler for the "Assign" button on an obligation card (toggles assignOpenId). */
+  onToggleAssign?: (returnId: string) => void;
   /** No longer used (filing moved to the Filing Record tab); accepted so older callers still compile. */
   busyId?: string | null;
   onFileSelected?: (clientId: string, returnIds: string[]) => void;
@@ -107,9 +109,21 @@ export function TaxClientChecklist({
                       <div key={pol.tax_type} className={`min-w-[170px] rounded-md border bg-background p-2.5 ${st ? `border-l-4 ${ACCENT[st]}` : "border-dashed"}`}>
                         <div className="mb-1 flex items-center justify-between gap-2">
                           <span className="text-xs font-semibold">{pol.label}</span>
-                          {isAdmin && (
-                            <button type="button" onClick={() => onStop(client.id, pol, client.company_name)} className="text-[10px] text-muted-foreground opacity-0 transition-opacity hover:text-destructive focus:opacity-100 group-hover:opacity-100">Stop</button>
-                          )}
+                          <span className="flex items-center gap-2">
+                            {cur && onToggleAssign && (
+                              <button
+                                type="button"
+                                onClick={() => onToggleAssign(cur.id)}
+                                aria-expanded={assignOpenId === cur.id}
+                                className={`text-[10px] underline-offset-2 hover:text-foreground hover:underline ${assignOpenId === cur.id ? "text-foreground underline" : "text-muted-foreground opacity-0 transition-opacity focus:opacity-100 group-hover:opacity-100"}`}
+                              >
+                                {assignOpenId === cur.id ? "Close" : "Assign"}
+                              </button>
+                            )}
+                            {isAdmin && (
+                              <button type="button" onClick={() => onStop(client.id, pol, client.company_name)} className="text-[10px] text-muted-foreground opacity-0 transition-opacity hover:text-destructive focus:opacity-100 group-hover:opacity-100">Stop</button>
+                            )}
+                          </span>
                         </div>
                         {!cur ? renderMissing(client.id, pol.tax_type) : (
                           <Link to="/tax/$type" params={{ type: pol.tax_type }} search={{ client: client.id }} className="inline-block hover:opacity-80">
