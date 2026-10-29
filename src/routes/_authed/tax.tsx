@@ -9,6 +9,7 @@ import { CompletionInvoiceDialog } from "@/components/completion-invoice-dialog"
 import { daysUntil, periodsOverdue, formatDate, formatDateTime } from "@/lib/format";
 import { filingOpenDate, isFilingOpen, todayNairobi } from "@/lib/tax-period";
 import { TaxClientChecklist, type ChecklistClientRow } from "@/components/tax-client-checklist";
+import { TaxAssigneeSelect } from "@/components/tax-assignee-select";
 import { TaxFilingInvoiceDialog } from "@/components/tax-filing-invoice-dialog";
 
 export const Route = createFileRoute("/_authed/tax")({
@@ -59,6 +60,7 @@ function TaxPage() {
   const [uploadingReceipt, setUploadingReceipt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busyCell, setBusyCell] = useState<string | null>(null);
+  const [assignOpenId, setAssignOpenId] = useState<string | null>(null);
   const [invoiceFor, setInvoiceFor] = useState<{ id: string; clientId: string; clientName?: string | null; description: string; needsReceipt: boolean } | null>(null);
   const [batchFor, setBatchFor] = useState<{ clientId: string; returnIds: string[] } | null>(null);
   // Filing Record: obligations ticked per client, filed together with "File selected".
@@ -66,9 +68,6 @@ function TaxPage() {
   const [clientFilter, setClientFilter] = useState("");
   const [accFilter, setAccFilter] = useState<"all" | "overdue" | "duesoon" | "unassigned">("all");
   const [checklistType, setChecklistType] = useState<string>(ALL_TYPES);
-  // The checklist is a to-do list: filed obligations drop off it. This switch
-  // brings them back (e.g. to review a filing or reopen it).
-  const [showFiled, setShowFiled] = useState(false);
   const [reportType, setReportType] = useState<string>("");
   const [annualYear, setAnnualYear] = useState<string>(todayNairobi().slice(0, 4));
   const [annualType, setAnnualType] = useState<string>("");
@@ -619,21 +618,9 @@ function TaxPage() {
       client: c,
       items: (checklistType === ALL_TYPES ? activePolicies : activePolicies.filter(p => p.tax_type === checklistType))
         .filter(pol => obligationMap.get(`${c.id}:${pol.tax_type}`))
-        .map(pol => ({ pol, cur: currentReturn(c.id, pol.tax_type) }))
-        // Once an obligation is filed it leaves the checklist...
-        .filter(({ cur }) => showFiled || !cur || cur.status !== "filed"),
+        .map(pol => ({ pol, cur: currentReturn(c.id, pol.tax_type) })),
     }))
-    // ...and a client whose obligations are all filed leaves the list too.
     .filter(r => r.items.length > 0);
-
-  // Clients that still have something to file (what the checklist actually shows).
-  const clientsWithOpenFilings = clients.filter(c =>
-    activePolicies.some(pol => {
-      if (!obligationMap.get(`${c.id}:${pol.tax_type}`)) return false;
-      const cur = currentReturn(c.id, pol.tax_type);
-      return !cur || cur.status !== "filed";
-    })
-  ).length;
 
   function stopObligation(clientId: string, pol: any, clientName: string) {
     if (confirm(`Stop the ${pol.label} obligation for ${clientName}? Open filings stay, but nothing new is scheduled.`)) {
@@ -797,11 +784,8 @@ function TaxPage() {
               </select>
             </div>
             <input placeholder="Filter clients…" value={clientFilter} onChange={e => setClientFilter(e.target.value)} className="h-9 w-64 px-3 rounded-md border bg-background text-sm" />
-            <label className="inline-flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
-              <input type="checkbox" checked={showFiled} onChange={e => setShowFiled(e.target.checked)} /> Show filed
-            </label>
             <div className="flex flex-wrap gap-2 ml-auto">
-              <ChecklistChip active={accFilter === "all"} onClick={() => setAccFilter("all")} icon={LayoutGrid} label={showFiled ? "All obligated" : "To file"} value={showFiled ? obligatedClientCount : clientsWithOpenFilings} tone="muted" />
+              <ChecklistChip active={accFilter === "all"} onClick={() => setAccFilter("all")} icon={LayoutGrid} label="All obligated" value={obligatedClientCount} tone="muted" />
               <ChecklistChip active={accFilter === "overdue"} onClick={() => setAccFilter("overdue")} icon={AlertTriangle} label="Overdue" value={accStats.flagged.overdue.size} tone="destructive" />
               <ChecklistChip active={accFilter === "duesoon"} onClick={() => setAccFilter("duesoon")} icon={Clock} label="Due ≤7 days" value={accStats.flagged.duesoon.size} tone="amber" />
               <ChecklistChip active={accFilter === "unassigned"} onClick={() => setAccFilter("unassigned")} icon={UserX} label="Unassigned" value={accStats.flagged.unassigned.size} tone="amber" />
@@ -815,13 +799,7 @@ function TaxPage() {
               rows={checklistRows}
               isAdmin={isAdmin}
               busyId={busyCell}
-              emptyHint={
-                clientFilter || accFilter !== "all" || checklistType !== ALL_TYPES
-                  ? "No clients match your filters."
-                  : obligatedClientCount > 0 && !showFiled
-                    ? "All obligations are filed — nothing left on the checklist. Tick “Show filed” to review them."
-                    : "No obligated clients yet — add tax obligations from a client's Tax tab."
-              }
+              emptyHint={`No obligated clients${clientFilter || accFilter !== "all" || checklistType !== ALL_TYPES ? " match your filters" : " yet — add tax obligations from a client's Tax tab"}.`}
               renderCell={(cur, pol) => (
                 <ChecklistCell row={cur} cadence={pol.cadence} assigneeName={cur.assigned_to ? staffMap.get(cur.assigned_to) : null} />
               )}
@@ -829,6 +807,22 @@ function TaxPage() {
               onFileSelected={(clientId, returnIds) => setBatchFor({ clientId, returnIds })}
               onReopen={id => markFiled(id, false)}
               onStop={stopObligation}
+              assignOpenId={assignOpenId}
+              onToggleAssign={id => setAssignOpenId(prev => prev === id ? null : id)}
+              renderAssignPanel={(cur, pol, clientName) => (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-muted-foreground">Assign {pol.label} — {clientName} to:</span>
+                  <TaxAssigneeSelect
+                    returnId={cur.id}
+                    value={cur.assigned_to}
+                    staff={staff}
+                    assignedAt={cur.assigned_at}
+                    label={`${pol.label} — due ${formatDate(cur.due_date)}`}
+                    onChanged={() => load(true)}
+                  />
+                  <button type="button" onClick={() => setAssignOpenId(null)} className="text-[11px] text-muted-foreground underline hover:text-foreground">Done</button>
+                </div>
+              )}
             />
           )}
         </div>
