@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { openStoredFile, signedFileUrl } from "@/lib/client-files";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Eye, Download, FileText, X } from "lucide-react";
@@ -84,12 +85,11 @@ export function DocumentsTab({ clientIds }: { clientIds: string[] }) {
   }, [clientIds.join(",")]);
 
   async function view(path: string, title: string) {
-    const { data, error } = await supabase.storage.from("client-documents").createSignedUrl(path, 600);
-    if (error) toast.error(error.message); else setPreview({ url: data.signedUrl, title });
+    const res = await signedFileUrl("client-documents", path, 600);
+    if ("error" in res) toast.error(res.error); else setPreview({ url: res.url, title });
   }
   async function download(path: string) {
-    const { data, error } = await supabase.storage.from("client-documents").createSignedUrl(path, 60);
-    if (error) toast.error(error.message); else window.open(data.signedUrl, "_blank");
+    await openStoredFile("client-documents", path, 60);
   }
 
   return (

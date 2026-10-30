@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { notifyUser } from "@/lib/notify";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
@@ -25,7 +26,7 @@ export async function assignTaxReturn(
     return false;
   }
   if (newId && newId !== currentUserId) {
-    await supabase.from("notifications").insert({
+    await notifyUser({
       user_id: newId,
       type: "tax",
       title: "Tax filing assigned to you",

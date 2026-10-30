@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { openStoredFile } from "@/lib/client-files";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
@@ -83,9 +84,7 @@ export function ClientChatPanel({ clientId }: { clientId: string }) {
   }
 
   async function downloadAttachment(path: string) {
-    const { data, error } = await supabase.storage.from("chat-attachments").createSignedUrl(path, 300);
-    if (error) { toast.error(error.message); return; }
-    window.open(data.signedUrl, "_blank");
+    await openStoredFile("chat-attachments", path, 300);
   }
 
   if (loading) return <div className="text-sm text-muted-foreground py-6 text-center">Loading chat…</div>;

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { notifyUser } from "@/lib/notify";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { UserPlus, X, Users } from "lucide-react";
@@ -32,7 +33,7 @@ export function TaxAssignees({ taxReturnId, compact = false }: { taxReturnId: st
     if (error) toast.error(error.message);
     else {
       // notify the assignee
-      await supabase.from("notifications").insert({
+      await notifyUser({
         user_id: userId,
         title: "Assigned to a tax return",
         body: role || "You've been added as a collaborator.",

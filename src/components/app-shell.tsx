@@ -34,8 +34,14 @@ const NAV: NavItem[] = [
   { to: "/tax", label: "Tax", icon: Receipt },
   { to: "/audit", label: "Audit", icon: ClipboardCheck },
   { to: "/advisory", label: "Advisory", icon: Lightbulb },
-  { to: "/ict", label: "ICT", icon: Monitor },
-  { to: "/ict-service-desk", label: "ICT Service Desk", icon: Headset },
+  {
+    label: "ICT",
+    icon: Monitor,
+    children: [
+      { to: "/ict", label: "ICT", icon: Monitor },
+      { to: "/ict-service-desk", label: "ICT Service Desk", icon: Headset },
+    ],
+  },
   {
     label: "Other Services",
     icon: Layers,
@@ -46,11 +52,23 @@ const NAV: NavItem[] = [
     ],
   },
   { to: "/hr", label: "HR & Employees", icon: Contact },
-  { to: "/documents", label: "Documents", icon: FolderOpen },
+  {
+    label: "Documents & Links",
+    icon: FolderOpen,
+    children: [
+      { to: "/documents", label: "Documents", icon: FolderOpen },
+      { to: "/quick-links", label: "Quick Links", icon: Link2 },
+    ],
+  },
   { to: "/chat", label: "Chat", icon: MessageSquare },
-  { to: "/quick-links", label: "Quick Links", icon: Link2 },
-  { to: "/tasks", label: "Tasks", icon: ListTodo },
-  { to: "/calendar", label: "Calendar", icon: CalendarDays },
+  {
+    label: "Tasks & Calendar",
+    icon: ListTodo,
+    children: [
+      { to: "/tasks", label: "Tasks", icon: ListTodo },
+      { to: "/calendar", label: "Calendar", icon: CalendarDays },
+    ],
+  },
   { to: "/accounts", label: "Accounts", icon: Wallet },
   { to: "/announcements", label: "Announcements", icon: Megaphone },
   {

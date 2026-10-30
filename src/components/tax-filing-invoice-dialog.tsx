@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Receipt } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { InvoiceDialogShell, InvoiceFileField } from "@/components/invoice-dialog-shell";
+import { formatKes } from "@/lib/format";
 import { todayNairobi } from "@/lib/tax-period";
 
 export type FilingBatchItem = {
@@ -129,66 +128,62 @@ export function TaxFilingInvoiceDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={o => !busy && onOpenChange(o)}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader><DialogTitle>File selected obligations &amp; generate one invoice</DialogTitle></DialogHeader>
-        <div className="space-y-3">
-          <p className="text-xs text-muted-foreground">
-            {existing ? (
-              <>These obligations will be <span className="font-medium text-foreground">added to this month&apos;s invoice {existing.invoice_number}</span>{clientName ? <> for <span className="font-medium text-foreground">{clientName}</span></> : null} (still a draft).</>
-            ) : (
-              <>A new draft invoice{clientName ? <> for <span className="font-medium text-foreground">{clientName}</span></> : null} will be created for this month; later filings this month are added to it.</>
-            )}{" "}Enter the amount for each obligation (KES, before VAT).
-          </p>
-          <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
-            {items.map(i => (
-              <div key={i.returnId} className="rounded-md border p-2 space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <div className="text-sm font-medium">{i.label}</div>
-                    <div className="text-[11px] text-muted-foreground">{i.periodLabel}</div>
-                  </div>
-                  {i.invoiceId ? (
-                    <span className="text-[11px] text-muted-foreground">Already invoiced</span>
-                  ) : (
-                    <div className="w-36">
-                      <Label className="text-[11px]">Amount *</Label>
-                      <Input type="number" min="0" step="0.01" value={amounts[i.returnId] ?? ""} onChange={e => setAmounts(a => ({ ...a, [i.returnId]: e.target.value }))} />
-                    </div>
-                  )}
-                </div>
-                {!i.hasReceipt && (
-                  <div>
-                    <Label className="text-[11px]">Filing receipt *</Label>
-                    <Input type="file" onChange={e => setFiles(f => ({ ...f, [i.returnId]: e.target.files?.[0] ?? null }))} />
-                  </div>
-                )}
+    <InvoiceDialogShell
+      open={open}
+      onOpenChange={onOpenChange}
+      busy={busy}
+      maxWidth="max-w-lg"
+      title="File selected obligations &amp; generate one invoice"
+      submitLabel={existing ? `File ${items.length} & add to invoice` : `File ${items.length} & generate invoice`}
+      onSubmit={submit}
+    >
+      <p className="text-xs text-muted-foreground">
+        {existing ? (
+          <>These obligations will be <span className="font-medium text-foreground">added to this month&apos;s invoice {existing.invoice_number}</span>{clientName ? <> for <span className="font-medium text-foreground">{clientName}</span></> : null} (still a draft).</>
+        ) : (
+          <>A new draft invoice{clientName ? <> for <span className="font-medium text-foreground">{clientName}</span></> : null} will be created for this month; later filings this month are added to it.</>
+        )}{" "}Enter the amount for each obligation (KES, before VAT).
+      </p>
+      <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
+        {items.map(i => (
+          <div key={i.returnId} className="rounded-md border p-2 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <div className="text-sm font-medium">{i.label}</div>
+                <div className="text-[11px] text-muted-foreground">{i.periodLabel}</div>
               </div>
-            ))}
+              {i.invoiceId ? (
+                <span className="text-[11px] text-muted-foreground">Already invoiced</span>
+              ) : (
+                <div className="w-36">
+                  <Label className="text-[11px]">Amount *</Label>
+                  <Input type="number" min="0" step="0.01" value={amounts[i.returnId] ?? ""} onChange={e => setAmounts(a => ({ ...a, [i.returnId]: e.target.value }))} />
+                </div>
+              )}
+            </div>
+            {!i.hasReceipt && (
+              <InvoiceFileField small label="Filing receipt" onFile={f => setFiles(prev => ({ ...prev, [i.returnId]: f }))} />
+            )}
           </div>
-          {description && (
-            <div className="text-xs text-muted-foreground border-t pt-2">
-              <span className="font-medium text-foreground">Invoice description: </span>{description}
-            </div>
-          )}
-          {toInvoice.length > 0 && (
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">{existing ? "Adding now (before VAT)" : "Invoice total (before VAT)"}</span>
-              <span className="font-semibold">KES {total.toLocaleString("en-KE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-            </div>
-          )}
-          {existing && toInvoice.length > 0 && (
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Invoice subtotal after adding (before VAT)</span>
-              <span className="font-semibold">KES {newSubtotal.toLocaleString("en-KE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-            </div>
-          )}
+        ))}
+      </div>
+      {description && (
+        <div className="text-xs text-muted-foreground border-t pt-2">
+          <span className="font-medium text-foreground">Invoice description: </span>{description}
         </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>Cancel</Button>
-          <Button onClick={submit} disabled={busy}><Receipt className="h-3.5 w-3.5 mr-1" />{busy ? "Working…" : existing ? `File ${items.length} & add to invoice` : `File ${items.length} & generate invoice`}</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      )}
+      {toInvoice.length > 0 && (
+        <div className="flex justify-between text-sm">
+          <span className="text-muted-foreground">{existing ? "Adding now (before VAT)" : "Invoice total (before VAT)"}</span>
+          <span className="font-semibold">KES {formatKes(total)}</span>
+        </div>
+      )}
+      {existing && toInvoice.length > 0 && (
+        <div className="flex justify-between text-sm">
+          <span className="text-muted-foreground">Invoice subtotal after adding (before VAT)</span>
+          <span className="font-semibold">KES {formatKes(newSubtotal)}</span>
+        </div>
+      )}
+    </InvoiceDialogShell>
   );
 }

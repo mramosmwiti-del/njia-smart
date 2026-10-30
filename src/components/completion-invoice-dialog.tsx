@@ -2,12 +2,10 @@ import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Receipt } from "lucide-react";
 import { STATUS_COLORS } from "@/lib/format";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { InvoiceDialogShell, InvoiceFileField } from "@/components/invoice-dialog-shell";
 
 export type CompletionSource = "tax_returns" | "engagements" | "advisory_projects" | "service_projects";
 
@@ -64,29 +62,23 @@ export function CompletionInvoiceDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={o => !busy && onOpenChange(o)}>
-      <DialogContent className="max-w-md">
-        <DialogHeader><DialogTitle>Generate invoice to complete</DialogTitle></DialogHeader>
-        <div className="space-y-3">
-          <p className="text-xs text-muted-foreground">
-            An invoice is required to complete this task{clientName ? <> for <span className="font-medium text-foreground">{clientName}</span></> : null}. It is created under the client as a draft; you can add line items or record payment from Accounts.
-          </p>
-          <div><Label className="text-xs">Description</Label><Input value={description} onChange={e => setDescription(e.target.value)} /></div>
-          <div><Label className="text-xs">Amount (KES, before VAT) *</Label><Input type="number" min="0" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} /></div>
-          {requireFile && (
-            <div>
-              <Label className="text-xs">{fileLabel ?? "File"} *</Label>
-              <Input type="file" onChange={e => setFile(e.target.files?.[0] ?? null)} />
-              <p className="text-[11px] text-muted-foreground mt-1">Required before this can be registered as complete.</p>
-            </div>
-          )}
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>Cancel</Button>
-          <Button onClick={submit} disabled={busy}><Receipt className="h-3.5 w-3.5 mr-1" />{busy ? "Working…" : "Generate invoice & complete"}</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <InvoiceDialogShell
+      open={open}
+      onOpenChange={onOpenChange}
+      busy={busy}
+      title="Generate invoice to complete"
+      submitLabel="Generate invoice & complete"
+      onSubmit={submit}
+    >
+      <p className="text-xs text-muted-foreground">
+        An invoice is required to complete this task{clientName ? <> for <span className="font-medium text-foreground">{clientName}</span></> : null}. It is created under the client as a draft; you can add line items or record payment from Accounts.
+      </p>
+      <div><Label className="text-xs">Description</Label><Input value={description} onChange={e => setDescription(e.target.value)} /></div>
+      <div><Label className="text-xs">Amount (KES, before VAT) *</Label><Input type="number" min="0" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} /></div>
+      {requireFile && (
+        <InvoiceFileField label={fileLabel ?? "File"} hint="Required before this can be registered as complete." onFile={setFile} />
+      )}
+    </InvoiceDialogShell>
   );
 }
 

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { notifyUser } from "@/lib/notify";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { UserPlus, X, Users } from "lucide-react";
@@ -63,7 +64,7 @@ export function ClientAssignments({ clientId, compact = false }: { clientId: str
       }
     }
     if (uid !== user?.id) {
-      await supabase.from("notifications").insert({
+      await notifyUser({
         user_id: uid, type: "tax",
         title: "Tax obligations assigned to you",
         body: `${clientName ? clientName + ": " : ""}${types.map(labelOf).join(", ")}`,
@@ -92,7 +93,7 @@ export function ClientAssignments({ clientId, compact = false }: { clientId: str
     });
 
     if (userId !== user?.id) {
-      await supabase.from("notifications").insert({
+      await notifyUser({
         user_id: userId, type: "client_assigned",
         title: "Assigned to a client",
         body: clientName ? `You were assigned to ${clientName}${role ? ` as ${role}` : ""}` : "You were assigned to a client",

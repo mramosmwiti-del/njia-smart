@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { openStoredFile } from "@/lib/client-files";
 import { Link } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -329,8 +330,7 @@ export function TaxObligations({ clientId, hideAdd = false, reloadKey, focusType
     load();
   }
   async function viewDoc(path: string) {
-    const { data, error } = await supabase.storage.from("client-documents").createSignedUrl(path, 300);
-    if (error) toast.error(error.message); else window.open(data.signedUrl, "_blank");
+    await openStoredFile("client-documents", path, 300);
   }
 
   function openBill(row: any) {
