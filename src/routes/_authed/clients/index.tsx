@@ -89,6 +89,11 @@ function ClientsList() {
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
+    // Ensure the session is fresh before writing. If the tab sat idle and the
+    // access token quietly expired, this waits for Supabase's client to
+    // finish refreshing it first -- otherwise the insert below can race the
+    // refresh and fail with a 401 even though the click itself was fine.
+    await supabase.auth.getSession();
     const { data: { user } } = await supabase.auth.getUser();
     const payload: any = { ...form, created_by: user?.id };
     if (form.client_type === "individual") {
