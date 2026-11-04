@@ -1,4 +1,5 @@
 import { createFileRoute, Link, Outlet, useChildMatches } from "@tanstack/react-router";
+import { openStoredFile } from "@/lib/client-files";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -169,9 +170,7 @@ function HrPage() {
   }
 
   async function downloadPayslip(path: string) {
-    const { data, error } = await supabase.storage.from("payslips").createSignedUrl(path, 60);
-    if (error) toast.error(error.message);
-    else window.open(data.signedUrl, "_blank");
+    await openStoredFile("payslips", path, 60);
   }
 
   return (

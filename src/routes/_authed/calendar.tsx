@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { notifyUser } from "@/lib/notify";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -98,7 +99,7 @@ function CalendarPage() {
       payload.created_by = user?.id;
       ({ error: err } = await supabase.from("calendar_events").insert(payload));
       if (!err && payload.assigned_to) {
-        await supabase.from("notifications").insert({
+        await notifyUser({
           user_id: payload.assigned_to, type: "calendar",
           title: `Assigned: ${payload.title}`, body: `Due ${payload.event_date}`, link: "/calendar",
         });

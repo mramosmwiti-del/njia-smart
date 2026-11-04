@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { openStoredFile } from "@/lib/client-files";
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -121,8 +122,7 @@ function EmployeeHrPage() {
   }
 
   async function downloadDoc(path: string) {
-    const { data, error } = await supabase.storage.from("hr-documents").createSignedUrl(path, 300);
-    if (error) toast.error(error.message); else window.open(data.signedUrl, "_blank");
+    await openStoredFile("hr-documents", path, 300);
   }
 
   async function removeDoc(docId: string, path: string) {
@@ -164,8 +164,7 @@ function EmployeeHrPage() {
   }
 
   async function downloadPayslip(path: string) {
-    const { data, error } = await supabase.storage.from("payslips").createSignedUrl(path, 300);
-    if (error) toast.error(error.message); else window.open(data.signedUrl, "_blank");
+    await openStoredFile("payslips", path, 300);
   }
 
   if (!profile) return <div className="text-sm text-muted-foreground">Loading…</div>;

@@ -1,4 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { notifyUser } from "@/lib/notify";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -74,7 +75,7 @@ function TasksPage() {
       toast.success("Task created");
     }
     if (form.assigned_to && form.assigned_to !== user?.id) {
-      await supabase.from("notifications").insert({ user_id: form.assigned_to, type:"task_assigned", title: form.id ? "Task updated" : "New task assigned", body: form.title });
+      await notifyUser({ user_id: form.assigned_to, type:"task_assigned", title: form.id ? "Task updated" : "New task assigned", body: form.title });
     }
     setOpen(false); setForm(EMPTY); load();
   }
@@ -139,7 +140,7 @@ function TasksPage() {
                         if (error) toast.error(error.message);
                         else {
                           if (newAssignee && newAssignee !== user?.id) {
-                            await supabase.from("notifications").insert({ user_id: newAssignee, type:"task_transferred", title:"Task transferred to you", body: t.title });
+                            await notifyUser({ user_id: newAssignee, type:"task_transferred", title:"Task transferred to you", body: t.title });
                           }
                           toast.success("Reassigned"); load();
                         }
@@ -230,7 +231,7 @@ function TaskDetail({ id, onClose }: { id: string; onClose: () => void }) {
     if (error) toast.error(error.message);
     else { setText(""); load();
       if (task?.assigned_to && task.assigned_to !== user?.id) {
-        await supabase.from("notifications").insert({ user_id: task.assigned_to, type:"task_comment", title:"New comment on task", body: task.title });
+        await notifyUser({ user_id: task.assigned_to, type:"task_comment", title:"New comment on task", body: task.title });
       }
     }
   }

@@ -1,4 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { openStoredFile } from "@/lib/client-files";
+import { notifyUser } from "@/lib/notify";
 import { useEffect, useMemo, useState } from "react";
 import {
   CheckCircle2,
@@ -277,7 +279,7 @@ function AdvisoryPage() {
     if (error) toast.error(error.message);
     else {
       if (activityAssignee && activityAssignee !== user?.id) {
-        await supabase.from("notifications").insert({
+        await notifyUser({
           user_id: activityAssignee,
           type: "advisory_activity_assigned",
           title: "Advisory activity assigned",
@@ -344,9 +346,7 @@ function AdvisoryPage() {
   }
 
   async function openDocument(path: string) {
-    const { data, error } = await supabase.storage.from("client-documents").createSignedUrl(path, 600);
-    if (error) toast.error(error.message);
-    else window.open(data.signedUrl, "_blank");
+    await openStoredFile("client-documents", path, 600);
   }
 
   const serviceCounts = SERVICES.map((service) => ({

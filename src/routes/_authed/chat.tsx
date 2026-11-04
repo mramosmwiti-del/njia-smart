@@ -1,4 +1,5 @@
 import { createFileRoute, useSearch } from "@tanstack/react-router";
+import { openStoredFile } from "@/lib/client-files";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
@@ -282,9 +283,7 @@ function ChatPage() {
   }
 
   async function downloadAttachment(path: string) {
-    const { data, error } = await supabase.storage.from("chat-attachments").createSignedUrl(path, 300);
-    if (error) { toast.error(error.message); return; }
-    window.open(data.signedUrl, "_blank");
+    await openStoredFile("chat-attachments", path, 300);
   }
 
   return (

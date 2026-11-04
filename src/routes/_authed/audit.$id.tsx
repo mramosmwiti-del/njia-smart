@@ -1,4 +1,6 @@
 import { createFileRoute, Link, useParams } from "@tanstack/react-router";
+import { openStoredFile, signedFileUrl } from "@/lib/client-files";
+import { notifyUser } from "@/lib/notify";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -104,12 +106,11 @@ function AuditDetail() {
     if (error) toast.error(error.message); else { toast.success("Uploaded"); setWpTitle(""); load(); }
   }
   async function viewWp(path: string, title: string) {
-    const { data, error } = await supabase.storage.from("audit-workpapers").createSignedUrl(path, 600);
-    if (error) toast.error(error.message); else setPreview({ url: data.signedUrl, title });
+    const res = await signedFileUrl("audit-workpapers", path, 600);
+    if ("error" in res) toast.error(res.error); else setPreview({ url: res.url, title });
   }
   async function downloadWp(path: string) {
-    const { data, error } = await supabase.storage.from("audit-workpapers").createSignedUrl(path, 60);
-    if (error) toast.error(error.message); else window.open(data.signedUrl, "_blank");
+    await openStoredFile("audit-workpapers", path, 60);
   }
   async function removeWp(wpId: string, path: string) {
     if (!confirm("Delete workpaper?")) return;
@@ -148,7 +149,7 @@ function AuditDetail() {
     if (error) toast.error(error.message);
     else {
       if (payload.assigned_to) {
-        await supabase.from("notifications").insert({
+        await notifyUser({
           user_id: payload.assigned_to, type: "task",
           title: `Assigned: ${payload.title}`, body: `Audit: ${e?.title} — ${stageLabel(payload.stage)}`, link: `/audit/${id}`,
         });

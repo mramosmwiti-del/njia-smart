@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { openStoredFile } from "@/lib/client-files";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -22,9 +23,7 @@ const SERVICE_LINES = [
 const METHODS = ["mpesa", "bank", "cash", "cheque", "card"];
 
 async function openReceipt(path: string) {
-  const { data, error } = await supabase.storage.from("payment-receipts").createSignedUrl(path, 300);
-  if (error) return toast.error(error.message);
-  window.open(data.signedUrl, "_blank");
+  await openStoredFile("payment-receipts", path, 300);
 }
 
 function money(n: number) {

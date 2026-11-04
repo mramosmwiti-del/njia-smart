@@ -1,4 +1,6 @@
 import { createFileRoute, Link, useParams } from "@tanstack/react-router";
+import { openStoredFile } from "@/lib/client-files";
+import { notifyUser } from "@/lib/notify";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -152,9 +154,7 @@ function TaxTypePage() {
   }
 
   async function downloadReceipt(path: string) {
-    const { data, error } = await supabase.storage.from("client-documents").createSignedUrl(path, 60);
-    if (error) toast.error(error.message);
-    else window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+    await openStoredFile("client-documents", path, 60);
   }
 
   async function remove(id: string) {
@@ -192,7 +192,7 @@ function TaxTypePage() {
     if (error) { toast.error(error.message); return; }
     if (!data || data.length === 0) { toast.error("You don't have permission to edit this filing."); return; }
     if (payload.assigned_to && payload.assigned_to !== before?.assigned_to && payload.assigned_to !== user?.id) {
-      await supabase.from("notifications").insert({
+      await notifyUser({
         user_id: payload.assigned_to, type: "tax", title: "Tax filing assigned to you",
         body: `${label} — ${before?.clients?.company_name ?? "client"}`, link: "/tax",
       } as any);
