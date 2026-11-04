@@ -57,3 +57,8 @@ export const STATUS_COLORS: Record<string, string> = {
 export function statusLabel(s: string) {
   return s.replace(/_/g, " ");
 }
+
+/** "1,234.50" - amounts shown with KES prefixes in invoice dialogs. */
+export function formatKes(n: number) {
+  return n.toLocaleString("en-KE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
