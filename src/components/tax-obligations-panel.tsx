@@ -14,6 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { useAuth } from "@/lib/auth";
+import { createTaxFilingInvoice, markReturnsFiled } from "@/lib/tax-filing-invoice";
 
 const STATUSES = ["pending", "in_progress", "filed"];
 
@@ -68,49 +69,34 @@ function TaxFilingInvoiceDialog({
       return;
     }
 
-    const items = selectedRows.map(r => ({
-      return_id: r.id,
+    const lines = selectedRows.map(r => ({
+      returnId: r.id,
       description: `${typeLabel(r.return_type)} filing${r.period_end ? ` — period ending ${formatDate(r.period_end)}` : ""}`,
       amount: Number(amounts[r.id]) || 0,
     }));
 
-    if (items.some(item => item.amount <= 0)) {
+    if (lines.some(l => l.amount <= 0)) {
       toast.error("Enter an amount for every selected obligation.");
       return;
     }
 
     setBusy(true);
     try {
-      const { data, error } = await supabase.rpc("create_tax_filing_invoice" as any, {
-        _items: items,
-        _vat_rate: 16,
-      } as any);
-
-      if (error || !data) {
-        throw error ?? new Error("Could not create the tax invoice.");
-      }
-
-      // The monthly invoice migration returns an object; older versions returned
-      // only the invoice UUID. Accept both so this UI remains compatible while
-      // migrations are being rolled out.
-      const invoiceId = typeof data === "string" ? data : data.invoice_id;
-      if (!invoiceId) throw new Error("Invoice was created but its ID was not returned.");
-
       // The invoice/link is created first, then the selected filings are completed.
       // The database guard requires that invoice_id already exists.
-      for (const row of selectedRows) {
-        const { error: statusError } = await supabase
-          .from("tax_returns")
-          .update({ status: "filed" })
-          .eq("id", row.id);
-        if (statusError) throw statusError;
-      }
+      await createTaxFilingInvoice(lines);
+      const { filed, error: fileError } = await markReturnsFiled(selectedRows.map(r => r.id));
+      if (fileError) throw new Error(`${fileError} — the invoice was created; reopen to finish filing.`);
 
-      toast.success(
-        selectedRows.length > 1
-          ? `${selectedRows.length} obligations filed on one invoice`
-          : "Obligation filed and invoice generated"
-      );
+      if (filed !== selectedRows.length) {
+        toast.error("Some obligations could not be filed — you may not have permission for all of them.");
+      } else {
+        toast.success(
+          selectedRows.length > 1
+            ? `${selectedRows.length} obligations filed on one invoice`
+            : "Obligation filed and invoice generated"
+        );
+      }
       onOpenChange(false);
       await onCompleted();
     } catch (e: any) {
