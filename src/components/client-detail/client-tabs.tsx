@@ -2,7 +2,7 @@ import { Trash2, Eye, Download } from "lucide-react";
 import { formatDate } from "@/lib/format";
 import { ClientAssignments } from "@/components/client-assignments";
 import { ObligationContacts } from "@/components/obligation-contacts";
-import { TaxObligations } from "@/components/tax-obligations";
+import { TaxObligations } from "@/components/tax-obligations-panel";
 import { Button } from "@/components/ui/button";
 import { TABS } from "./constants";
 import { TabSection, Card, Empty, RelatedList, TaxList } from "./helpers";
