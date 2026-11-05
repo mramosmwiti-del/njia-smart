@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { InvoiceDialogShell, InvoiceFileField } from "@/components/invoice-dialog-shell";
 import { formatKes } from "@/lib/format";
 import { todayNairobi } from "@/lib/tax-period";
+import { createTaxFilingInvoice, markReturnsFiled } from "@/lib/tax-filing-invoice";
 
 export type FilingBatchItem = {
   returnId: string;
@@ -98,27 +99,27 @@ export function TaxFilingInvoiceDialog({
     }
 
     if (toInvoice.length) {
-      const payload = toInvoice.map(i => ({
-        return_id: i.returnId,
-        description: `${i.label} filing — ${i.periodLabel}`,
-        amount: Number(amounts[i.returnId] || 0),
-      }));
-      const { data: result, error } = await supabase.rpc("create_tax_filing_invoice" as any, { _items: payload } as any);
-      if (error) { setBusy(false); toast.error(error.message); return; }
-      const r = result as any;
-      invoiceNote = r?.created ? "one invoice generated" : `added to invoice ${r?.invoice_number ?? ""}`.trim();
-      if (r?.invoice_id) onInvoiceCreated?.(r.invoice_id as string);
+      try {
+        const r = await createTaxFilingInvoice(toInvoice.map(i => ({
+          returnId: i.returnId,
+          description: `${i.label} filing — ${i.periodLabel}`,
+          amount: Number(amounts[i.returnId] || 0),
+        })));
+        invoiceNote = r.created ? "one invoice generated" : `added to invoice ${r.invoiceNumber ?? ""}`.trim();
+        onInvoiceCreated?.(r.invoiceId);
+      } catch (e: any) {
+        setBusy(false); toast.error(e?.message ?? "Could not create the tax invoice."); return;
+      }
     }
 
-    const { data, error } = await supabase.from("tax_returns")
-      .update({ status: "filed" }).in("id", items.map(i => i.returnId)).select("id");
+    const { filed, error } = await markReturnsFiled(items.map(i => i.returnId));
     if (error) {
       setBusy(false);
-      toast.error(`${error.message} — the invoice was created; reopen this dialog to finish filing.`);
+      toast.error(`${error} — the invoice was created; reopen this dialog to finish filing.`);
       await onDone();
       return;
     }
-    if (!data || data.length !== items.length) {
+    if (filed !== items.length) {
       toast.error("Some returns could not be filed — you may not have permission for all of them.");
     } else {
       toast.success(`${items.length} obligation${items.length === 1 ? "" : "s"} filed · ${invoiceNote}`);
