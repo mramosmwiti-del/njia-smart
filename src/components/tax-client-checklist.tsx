@@ -115,9 +115,9 @@ export function TaxClientChecklist({
                                 type="button"
                                 onClick={() => onToggleAssign(cur.id)}
                                 aria-expanded={assignOpenId === cur.id}
-                                className={`text-[10px] underline-offset-2 hover:text-foreground hover:underline ${assignOpenId === cur.id ? "text-foreground underline" : "text-muted-foreground opacity-0 transition-opacity focus:opacity-100 group-hover:opacity-100"}`}
+                                className="text-[10px] font-medium text-primary underline-offset-2 hover:underline"
                               >
-                                {assignOpenId === cur.id ? "Close" : "Assign"}
+                                Assign
                               </button>
                             )}
                             {isAdmin && (
@@ -150,7 +150,7 @@ export function TaxClientChecklist({
               </div>
 
               {renderAssignPanel && items.map(({ pol, cur }) => cur && assignOpenId === cur.id ? (
-                <div key={`assign-${cur.id}`} className="bg-muted/20 px-4 py-2">{renderAssignPanel(cur, pol, client.company_name)}</div>
+                <Fragment key={`assign-${cur.id}`}>{renderAssignPanel(cur, pol, client.company_name)}</Fragment>
               ) : null)}
             </Fragment>
           );
