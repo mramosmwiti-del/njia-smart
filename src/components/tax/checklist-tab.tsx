@@ -1,13 +1,13 @@
 import { AlertTriangle, Clock, UserX, LayoutGrid } from "lucide-react";
 import { formatDate } from "@/lib/format";
 import { TaxClientChecklist } from "@/components/tax-client-checklist";
-import { TaxAssigneeSelect } from "@/components/tax-assignee-select";
+import { TaxAssignDialog } from "@/components/tax-assign-dialog";
 import { ChecklistChip, ChecklistCell } from "./checklist-cells";
 import { ALL_TYPES } from "./tax-utils";
 import type { TaxCtx } from "./use-tax-page";
 
 export function ChecklistTab({ ctx }: { ctx: TaxCtx }) {
-  const { isAdmin, staff, busyCell, assignOpenId, setAssignOpenId, setBatchFor, clientFilter, setClientFilter, accFilter, setAccFilter, checklistType, setChecklistType, load, activePolicies, renderMissing, staffMap, accStats, obligatedClientCount, markFiled, checklistRows, stopObligation } = ctx;
+  const { isAdmin, staff, collabByReturn, busyCell, assignOpenId, setAssignOpenId, setBatchFor, clientFilter, setClientFilter, accFilter, setAccFilter, checklistType, setChecklistType, load, activePolicies, renderMissing, staffMap, accStats, obligatedClientCount, markFiled, checklistRows, stopObligation } = ctx;
   return (
     <>
         <div className="space-y-3">
@@ -37,7 +37,12 @@ export function ChecklistTab({ ctx }: { ctx: TaxCtx }) {
               busyId={busyCell}
               emptyHint={`No obligated clients${clientFilter || accFilter !== "all" || checklistType !== ALL_TYPES ? " match your filters" : " yet — add tax obligations from a client's Tax tab"}.`}
               renderCell={(cur, pol) => (
-                <ChecklistCell row={cur} cadence={pol.cadence} assigneeName={cur.assigned_to ? staffMap.get(cur.assigned_to) : null} />
+                <ChecklistCell
+                  row={cur}
+                  cadence={pol.cadence}
+                  assigneeName={cur.assigned_to ? staffMap.get(cur.assigned_to) : null}
+                  extraNames={(collabByReturn.get(cur.id) ?? []).filter((id: string) => id !== cur.assigned_to).map((id: string) => staffMap.get(id) ?? "Unknown")}
+                />
               )}
               renderMissing={renderMissing}
               onFileSelected={(clientId, returnIds) => setBatchFor({ clientId, returnIds })}
@@ -46,18 +51,17 @@ export function ChecklistTab({ ctx }: { ctx: TaxCtx }) {
               assignOpenId={assignOpenId}
               onToggleAssign={id => setAssignOpenId(prev => prev === id ? null : id)}
               renderAssignPanel={(cur, pol, clientName) => (
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-xs text-muted-foreground">Assign {pol.label} — {clientName} to:</span>
-                  <TaxAssigneeSelect
-                    returnId={cur.id}
-                    value={cur.assigned_to}
-                    staff={staff}
-                    assignedAt={cur.assigned_at}
-                    label={`${pol.label} — due ${formatDate(cur.due_date)}`}
-                    onChanged={() => load(true)}
-                  />
-                  <button type="button" onClick={() => setAssignOpenId(null)} className="text-[11px] text-muted-foreground underline hover:text-foreground">Done</button>
-                </div>
+                <TaxAssignDialog
+                  open
+                  onOpenChange={o => { if (!o) setAssignOpenId(null); }}
+                  returnId={cur.id}
+                  title={`${pol.label} — ${clientName} · due ${formatDate(cur.due_date)}`}
+                  staff={staff}
+                  primaryId={cur.assigned_to}
+                  collaboratorIds={collabByReturn.get(cur.id) ?? []}
+                  label={`${pol.label} — ${clientName} — due ${formatDate(cur.due_date)}`}
+                  onChanged={() => load(true)}
+                />
               )}
             />
           )}

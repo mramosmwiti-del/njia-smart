@@ -16,7 +16,7 @@ export function ChecklistChip({ active, onClick, icon: Icon, label, value, tone 
   );
 }
 
-export function ChecklistCell({ row, cadence, assigneeName }: { row: any; cadence: string; assigneeName?: string | null }) {
+export function ChecklistCell({ row, cadence, assigneeName, extraNames = [] }: { row: any; cadence: string; assigneeName?: string | null; extraNames?: string[] }) {
   const over = periodsOverdue(row.due_date, cadence);
   const d = daysUntil(row.due_date);
   const filed = row.status === "filed";
@@ -27,7 +27,8 @@ export function ChecklistCell({ row, cadence, assigneeName }: { row: any; cadenc
     : row.status === "in_progress"
     ? "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200"
     : "bg-muted text-muted-foreground";
-  const initials = assigneeName ? assigneeName.split(" ").map((s: string) => s[0]).slice(0, 2).join("").toUpperCase() : null;
+  const initialsOf = (n: string) => n.split(" ").filter(Boolean).map((s: string) => s[0]).slice(0, 2).join("").toUpperCase();
+  const initials = assigneeName ? initialsOf(assigneeName) : null;
 
   return (
     <div className="inline-flex flex-col items-center gap-0.5">
@@ -40,13 +41,18 @@ export function ChecklistCell({ row, cadence, assigneeName }: { row: any; cadenc
         </span>
       )}
       {!filed && (
-        initials ? (
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground" title={assigneeName ?? undefined}>{initials}</span>
-        ) : (
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-100 inline-flex items-center gap-0.5">
-            <UserX className="h-2.5 w-2.5" /> Unassigned
-          </span>
-        )
+        <span className="inline-flex flex-wrap justify-center items-center gap-0.5">
+          {initials ? (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground" title={assigneeName ?? undefined}>{initials}</span>
+          ) : (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-100 inline-flex items-center gap-0.5">
+              <UserX className="h-2.5 w-2.5" /> Unassigned
+            </span>
+          )}
+          {extraNames.map(n => (
+            <span key={n} className="text-[10px] px-1.5 py-0.5 rounded bg-accent/20 text-muted-foreground" title={`Also working on it: ${n}`}>{initialsOf(n)}</span>
+          ))}
+        </span>
       )}
     </div>
   );
