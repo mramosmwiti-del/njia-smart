@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Plus, Trash2, Upload, Download, Receipt, ChevronDown, ChevronRight, FileText } from "lucide-react";
 import { formatDate, formatDateTime, daysUntil, STATUS_COLORS, statusLabel } from "@/lib/format";
 import { TaxAssigneeSelect } from "@/components/tax-assignee-select";
+import { TaxAssignees } from "@/components/tax-assignees";
 import { useLiveRefresh } from "@/hooks/use-live-refresh";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -407,6 +408,15 @@ export function TaxObligations({ clientId, hideAdd = false, reloadKey, focusType
                       value={r.assigned_to}
                       staff={staff}
                       assignedAt={r.assigned_at}
+                      label={`${typeLabel(type)} — due ${formatDate(r.due_date)}`}
+                      onChanged={load}
+                    />
+                    <TaxAssignees
+                      taxReturnId={r.id}
+                      compact
+                      buttonOnly
+                      staff={staff}
+                      primaryId={r.assigned_to}
                       label={`${typeLabel(type)} — due ${formatDate(r.due_date)}`}
                       onChanged={load}
                     />
