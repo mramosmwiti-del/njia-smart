@@ -8,7 +8,9 @@ import { TABS } from "./constants";
 
 export function useClientDetail(id: string, search: { tab?: string; obligation?: string }) {
   const navigate = useNavigate();
-  const { isAdmin } = useAuth();
+  const { isAdmin, canCreate } = useAuth();
+  // Only full Tax access may add or stop a client's tax obligations (the database enforces the same).
+  const canEditTax = canCreate("tax");
   const [client, setClient] = useState<any>(null);
   const [tab, setTab] = useState<typeof TABS[number]>(
     (TABS as readonly string[]).includes(search.tab ?? "") ? (search.tab as typeof TABS[number]) : "Overview"
@@ -195,6 +197,7 @@ export function useClientDetail(id: string, search: { tab?: string; obligation?:
     const { data: { user } } = await supabase.auth.getUser();
     try {
       if (addOpen === "tax") {
+        if (!canEditTax) throw new Error("Only users with full Tax access can change a client's tax obligations.");
         const types: string[] = (addForm.return_types ?? []).filter(Boolean);
         if (types.length === 0 && !obligations.some((o: any) => o.active)) throw new Error("Select at least one tax obligation");
         // Due dates aren't picked here — each type's own policy (cadence + due
@@ -314,6 +317,7 @@ export function useClientDetail(id: string, search: { tab?: string; obligation?:
   return {
     navigate,
     isAdmin,
+    canEditTax,
     client,
     setClient,
     tab,

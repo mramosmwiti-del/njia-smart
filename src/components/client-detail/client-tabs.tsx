@@ -9,7 +9,7 @@ import { TabSection, Card, Empty, RelatedList, TaxList } from "./helpers";
 import type { ClientDetailCtx } from "./use-client-detail";
 
 export function ClientTabs({ ctx }: { ctx: ClientDetailCtx }) {
-  const { isAdmin, tab, setTab, related, taxPolicies, obligations, openDocument, deleteClientDocument, deleteFilingRecord, openAdd, id, search } = ctx;
+  const { isAdmin, canEditTax, tab, setTab, related, taxPolicies, obligations, openDocument, deleteClientDocument, deleteFilingRecord, openAdd, id, search } = ctx;
   return (
     <>
       <div className="flex flex-wrap gap-1 border-b">
@@ -44,7 +44,14 @@ export function ClientTabs({ ctx }: { ctx: ClientDetailCtx }) {
       )}
       {tab === "Tax" && (
         <div className="space-y-3">
-          <TabSection label="tax obligation" onAdd={() => openAdd("tax")}><TaxObligations clientId={id} hideAdd reloadKey={related.tax} focusType={search.obligation} /></TabSection>
+          <div className="rounded-md border bg-card px-3 py-2 text-sm">
+            <span className="text-muted-foreground">Tax obligations: </span>
+            {obligations.length === 0
+              ? <span className="text-muted-foreground">none yet</span>
+              : obligations.map(o => taxPolicies.find(p => p.tax_type === o.tax_type)?.label ?? o.tax_type).join(" · ")}
+            {!canEditTax && <div className="text-xs text-muted-foreground mt-0.5">View only — only users with full Tax access can add or stop obligations.</div>}
+          </div>
+          <TabSection label="tax obligation" canAdd={canEditTax} onAdd={() => openAdd("tax")}><TaxObligations clientId={id} hideAdd reloadKey={related.tax} focusType={search.obligation} /></TabSection>
           {obligations.length > 0 && (
             <div className="space-y-2">
               {obligations.map(o => {

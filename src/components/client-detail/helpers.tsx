@@ -3,12 +3,14 @@ import { formatDate } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 
-export function TabSection({ label, onAdd, children }: any) {
+export function TabSection({ label, onAdd, canAdd = true, children }: any) {
   return (
     <div className="space-y-2">
-      <div className="flex justify-end">
-        <Button size="sm" onClick={onAdd}><Plus className="h-3.5 w-3.5 mr-1" />Add {label}</Button>
-      </div>
+      {canAdd && (
+        <div className="flex justify-end">
+          <Button size="sm" onClick={onAdd}><Plus className="h-3.5 w-3.5 mr-1" />Add {label}</Button>
+        </div>
+      )}
       {children}
     </div>
   );
