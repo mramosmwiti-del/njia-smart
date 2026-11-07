@@ -200,6 +200,13 @@ export function useClientDetail(id: string, search: { tab?: string; obligation?:
         // Due dates aren't picked here — each type's own policy (cadence + due
         // day, set by admins under Settings) decides when the first filing is due.
         const existingTypes = obligations.filter((o: any) => o.active).map((o: any) => o.tax_type as string);
+        // Unticking an obligation stops it and removes its unfiled, un-invoiced
+        // periods. Say so before doing it, so a stray click can't do it silently.
+        const dropped = existingTypes.filter((t: string) => !types.includes(t));
+        if (dropped.length > 0) {
+          const names = dropped.map((t: string) => taxPolicies.find((p: any) => p.tax_type === t)?.label ?? t).join(", ");
+          if (!window.confirm(`Stop ${names} for this client?\n\nUnfiled periods with no invoice will be removed and nothing new will be scheduled. Filed records, invoices and documents are kept.`)) return;
+        }
         // Persist the selected obligations and deactivate any previously assigned
         // types that were unchecked. Remove only unused pending periods; filed,
         // in-progress, invoiced, and documented records are retained.
@@ -265,6 +272,14 @@ export function useClientDetail(id: string, search: { tab?: string; obligation?:
       load();
     } catch (e: any) {
       toast.error(e.message ?? String(e));
+      // A save can stop halfway (some obligations changed, one refused). Show
+      // what is really saved, so the ticks in the dialog never disagree with it.
+      if (addOpen === "tax") {
+        const { data: fresh } = await supabase.from("client_tax_obligations").select("*").eq("client_id", id).eq("active", true);
+        setObligations(fresh ?? []);
+        setAddForm((f: any) => ({ ...f, return_types: (fresh ?? []).map((o: any) => o.tax_type) }));
+        load();
+      }
     } finally {
       setAddBusy(false);
     }
