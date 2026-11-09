@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { useAuth, ROLE_LABELS, type AppRole } from "@/lib/auth";
 import { isHrManager } from "@/lib/permissions";
 import { formatDate } from "@/lib/format";
-import { Plus, X, Download, FileText, CheckCircle2, XCircle, Users, Trash2 } from "lucide-react";
+import { Plus, X, Download, FileText, CheckCircle2, XCircle, Users, Trash2, RotateCcw } from "lucide-react";
 
 export const Route = createFileRoute("/_authed/hr")({
   head: () => ({
@@ -27,7 +27,7 @@ function HrRoute() {
   return <HrPage />;
 }
 
-const TABS = ["Directory", "My Leave", "Approvals", "Leave Records", "Payslips"] as const;
+const TABS = ["Directory", "My Leave", "Approvals", "Leave Records", "Leave Balances", "Payslips"] as const;
 
 type GenderFilter = "all" | "female" | "male" | "unset";
 
@@ -51,6 +51,8 @@ function HrPage() {
   const [leaveTypes, setLeaveTypes] = useState<any[]>([]);
   const [myRequests, setMyRequests] = useState<any[]>([]);
   const [myBalances, setMyBalances] = useState<any[]>([]);
+  const [allBalances, setAllBalances] = useState<any[]>([]);
+  const [balanceFilter, setBalanceFilter] = useState("");
   const [pendingApprovals, setPendingApprovals] = useState<any[]>([]);
   const [leaveRecords, setLeaveRecords] = useState<any[]>([]);
   const [myPayslips, setMyPayslips] = useState<any[]>([]);
@@ -79,6 +81,7 @@ function HrPage() {
     setEmployment(Object.fromEntries((he.data ?? []).map((e: any) => [e.employee_id, e])));
     setLeaveTypes(lt.data ?? []);
     setMyBalances((bal.data ?? []).filter((b: any) => b.employee_id === user?.id));
+    setAllBalances(isAdmin ? (bal.data ?? []) : []);
     setMyRequests((lr.data ?? []).filter((r: any) => r.employee_id === user?.id));
     setLeaveRecords((lr.data ?? []).filter((r: any) => ["approved", "rejected"].includes(r.status)));
     setPendingApprovals((lr.data ?? []).filter((r: any) => {
@@ -169,6 +172,24 @@ function HrPage() {
     }
   }
 
+  // Admin/Director only: restore an employee's used days for this year to the
+  // full entitlement (one leave type, or all). History is kept; the days just
+  // stop counting. A reason is required and is shown to the employee.
+  async function resetLeaveBalance(employeeId: string, employeeName: string, leaveTypeId?: string, typeName?: string) {
+    const scope = leaveTypeId ? `${typeName ?? "these"} days` : "all leave days";
+    const reason = window.prompt(`Reset ${scope} used by ${employeeName} this year back to the full entitlement?\n\nEnter a reason (kept on record and shown to the employee):`);
+    if (reason === null) return;
+    if (!reason.trim()) { toast.error("A reason is required to reset leave days"); return; }
+    setBusy(true);
+    const { data, error } = await (supabase as any).rpc("reset_leave_balance", {
+      _employee_id: employeeId, _leave_type_id: leaveTypeId ?? null, _reason: reason.trim(),
+    });
+    setBusy(false);
+    if (error) { toast.error(error.message); return; }
+    toast.success(Number(data) > 0 ? `Leave days reset for ${employeeName}` : "Nothing to reset — no used days this year");
+    await load();
+  }
+
   async function downloadPayslip(path: string) {
     await openStoredFile("payslips", path, 60);
   }
@@ -181,7 +202,7 @@ function HrPage() {
       </div>
 
       <div className="flex flex-wrap gap-1 border-b">
-        {TABS.filter(t => (t !== "Approvals" || canApproveAny) && (t !== "Directory" || isHrMgr) && (t !== "Leave Records" || isHrMgr || isAdmin || isDirector)).map(t => (
+        {TABS.filter(t => (t !== "Approvals" || canApproveAny) && (t !== "Directory" || isHrMgr) && (t !== "Leave Records" || isHrMgr || isAdmin || isDirector) && (t !== "Leave Balances" || isAdmin)).map(t => (
           <button key={t} onClick={() => setTab(t)} className={`px-3 py-2 text-sm border-b-2 transition-colors ${tab === t ? "border-primary text-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
             {t}{t === "Approvals" && pendingApprovals.length > 0 ? ` (${pendingApprovals.length})` : ""}{t === "Leave Records" ? ` (${leaveRecords.length})` : ""}
           </button>
@@ -349,7 +370,10 @@ function HrPage() {
                       <td>{profiles.find(p => p.id === r.reliever_id)?.full_name || "—"}</td>
                       <td>{leaveTypes.find(t => t.id === r.leave_type_id)?.name || "—"}</td>
                       <td className="whitespace-nowrap text-xs">{formatDate(r.start_date)} – {formatDate(r.end_date)}</td>
-                      <td>{r.days}</td>
+                      <td>
+                        {r.days}
+                        {r.balance_reset_at && <div className="text-[10px] text-muted-foreground" title={r.balance_reset_reason ?? undefined}>reset {formatDate(r.balance_reset_at)}</div>}
+                      </td>
                       <td>{r.transferred_tasks_count ?? 0}</td>
                       <td>{r.transferred_tax_returns_count ?? 0}</td>
                       <td>{r.transferred_milestones_count ?? 0}</td>
@@ -369,6 +393,67 @@ function HrPage() {
           </div>
         </div>
       )}
+
+      {!loading && tab === "Leave Balances" && isAdmin && (() => {
+        const byEmployee = new Map<string, any[]>();
+        allBalances.forEach(b => { (byEmployee.get(b.employee_id) ?? byEmployee.set(b.employee_id, []).get(b.employee_id)!).push(b); });
+        const q = balanceFilter.trim().toLowerCase();
+        const people = profiles.filter(p => byEmployee.has(p.id) && (!q || String(p.full_name ?? "").toLowerCase().includes(q)));
+        return (
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h2 className="font-semibold">Leave balances — {new Date().getFullYear()}</h2>
+                <p className="text-xs text-muted-foreground">Reset restores the full entitlement for this year. The leave history stays on record; the days just stop counting. To remove a wrongly recorded request, use Leave Records → Delete.</p>
+              </div>
+              <input placeholder="Filter employees…" value={balanceFilter} onChange={e => setBalanceFilter(e.target.value)} className="h-9 w-56 px-3 rounded-md border bg-background text-sm" />
+            </div>
+            <div className="bg-card border rounded-lg overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/40 text-left text-xs text-muted-foreground border-b">
+                  <tr><th className="py-2 px-3">Employee</th><th className="py-2 px-3">Used / entitled days</th><th className="py-2 px-3 w-32"></th></tr>
+                </thead>
+                <tbody>
+                  {people.length === 0 && <tr><td colSpan={3} className="py-8 text-center text-muted-foreground">No employees match.</td></tr>}
+                  {people.map(p => {
+                    const rows = byEmployee.get(p.id) ?? [];
+                    const anyUsed = rows.some(b => Number(b.used_days) > 0);
+                    return (
+                      <tr key={p.id} className="border-b last:border-0 align-top">
+                        <td className="py-2 px-3 font-medium">{p.full_name || "—"}</td>
+                        <td className="py-2 px-3">
+                          <div className="flex flex-wrap gap-2">
+                            {rows.map(b => {
+                              const used = Number(b.used_days);
+                              return (
+                                <span key={b.leave_type_id} className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs">
+                                  {b.leave_type_name}: <span className={used > 0 ? "font-semibold" : "text-muted-foreground"}>{used}</span> / {Number(b.entitled_days)}
+                                  {used > 0 && (
+                                    <button type="button" disabled={busy} onClick={() => resetLeaveBalance(p.id, p.full_name || "this employee", b.leave_type_id, b.leave_type_name)} title={`Reset ${b.leave_type_name} days`} aria-label={`Reset ${b.leave_type_name} days for ${p.full_name}`} className="text-muted-foreground hover:text-primary disabled:opacity-50">
+                                      <RotateCcw className="h-3 w-3" />
+                                    </button>
+                                  )}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </td>
+                        <td className="py-2 px-3 text-right">
+                          {anyUsed && (
+                            <button type="button" disabled={busy} onClick={() => resetLeaveBalance(p.id, p.full_name || "this employee")} className="h-8 px-3 rounded-md border text-xs inline-flex items-center gap-1.5 hover:border-primary hover:text-primary disabled:opacity-50">
+                              <RotateCcw className="h-3.5 w-3.5" /> Reset all
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })()}
 
       {!loading && tab === "Payslips" && (
         <div className="bg-card border rounded-lg overflow-hidden">
