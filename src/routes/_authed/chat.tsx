@@ -5,7 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
 import {
-  Hash, Users2, Plus, Send, Paperclip, X, Loader2, MessageSquare, Trash2,
+  Hash, Users2, Plus, Send, Paperclip, X, Loader2, MessageSquare, Trash2, Ban,
 } from "lucide-react";
 
 export const Route = createFileRoute("/_authed/chat")({
@@ -29,6 +29,7 @@ type Message = {
   attachment_path: string | null;
   attachment_name: string | null;
   created_at: string;
+  deleted_at?: string | null;
 };
 
 type Profile = { id: string; full_name: string | null; avatar_url: string | null };
@@ -53,6 +54,7 @@ function ChatPage() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [unreadChannelIds, setUnreadChannelIds] = useState<Set<string>>(new Set());
   const [dmOtherUserId, setDmOtherUserId] = useState<Record<string, string>>({});
+  const [deleteTarget, setDeleteTarget] = useState<Message | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const channelsRef = useRef<Channel[]>([]);
   channelsRef.current = channels;
@@ -179,11 +181,25 @@ function ChatPage() {
     setMessages(visible);
   }
 
+  // The delete dialog (deleteTarget) is the confirmation for both options.
   async function deleteMessageForMe(id: string) {
-    if (!confirm("Delete this message for you? The other person will still see it.")) return;
     const { error } = await supabase.rpc("hide_chat_message_for_me", { _message_id: id });
     if (error) { toast.error(error.message); return; }
     setMessages((prev) => prev.filter((m) => m.id !== id));
+    setDeleteTarget(null);
+  }
+
+  // Sender only: the message stays in the thread for everyone as "This message was deleted".
+  async function deleteMessageForEveryone(m: Message) {
+    const { data, error } = await supabase.rpc("delete_chat_message_for_everyone" as any, { _message_id: m.id } as any);
+    if (error) { toast.error(error.message); return; }
+    setMessages((prev) => prev.map((x) => x.id === m.id
+      ? { ...x, body: null, attachment_path: null, attachment_name: null, deleted_at: new Date().toISOString() }
+      : x));
+    setDeleteTarget(null);
+    // Best effort: remove the stored file too.
+    const path = (data as unknown as string | null) ?? null;
+    if (path) void supabase.storage.from("chat-attachments").remove([path]);
   }
 
   async function deleteChatForMe() {
@@ -214,6 +230,12 @@ function ChatPage() {
       .channel(`chat-${activeId}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "chat_messages", filter: `channel_id=eq.${activeId}` },
         (payload) => setMessages((prev) => [...prev, payload.new as Message]))
+      // Someone deleted a message for everyone: show it as deleted straight away.
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "chat_messages", filter: `channel_id=eq.${activeId}` },
+        (payload) => {
+          const next = payload.new as Message;
+          setMessages((prev) => prev.map((x) => (x.id === next.id ? { ...x, ...next } : x)));
+        })
       .subscribe();
     // mark read
     if (user) {
@@ -313,9 +335,11 @@ function ChatPage() {
             <div className="h-14 border-b flex items-center gap-2 px-4 font-medium">
               {channelIcon(active)} {channelLabel(active)}
               <div className="ml-auto flex items-center gap-4">
-                <button onClick={clearChatForMe} className="text-xs font-normal text-muted-foreground hover:text-destructive inline-flex items-center gap-1">
-                  <Trash2 className="h-3.5 w-3.5" /> Clear chat
-                </button>
+                {active.kind === "team" && (
+                  <button onClick={clearChatForMe} className="text-xs font-normal text-muted-foreground hover:text-destructive inline-flex items-center gap-1">
+                    <Trash2 className="h-3.5 w-3.5" /> Clear chat
+                  </button>
+                )}
                 {active.kind !== "team" && (
                   <button onClick={deleteChatForMe} className="text-xs font-normal text-muted-foreground hover:text-destructive inline-flex items-center gap-1">
                     <X className="h-3.5 w-3.5" /> Delete chat
@@ -330,7 +354,7 @@ function ChatPage() {
                 return (
                   <div key={m.id} className={`group flex items-start gap-2 ${mine ? "justify-end" : "justify-start"}`}>
                     {mine && (
-                      <button onClick={() => deleteMessageForMe(m.id)} title="Delete for me" className="mt-2 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive">
+                      <button onClick={() => setDeleteTarget(m)} title="Delete message" className="mt-2 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive">
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     )}
@@ -341,18 +365,26 @@ function ChatPage() {
                     )}
                     <div className={`max-w-md rounded-lg px-3 py-2 text-sm ${mine ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
                       {!mine && <div className="text-xs font-semibold mb-0.5 opacity-70">{p?.full_name ?? "Unknown"}</div>}
-                      {m.body && <div className="whitespace-pre-wrap break-words">{m.body}</div>}
-                      {m.attachment_path && (
-                        <button onClick={() => downloadAttachment(m.attachment_path!)} className="mt-1 flex items-center gap-1 text-xs underline underline-offset-2">
-                          <Paperclip className="h-3 w-3" /> {m.attachment_name ?? "Attachment"}
-                        </button>
+                      {m.deleted_at ? (
+                        <div className="flex items-center gap-1.5 italic opacity-80">
+                          <Ban className="h-3.5 w-3.5 shrink-0" /> {mine ? "You deleted this message" : "This message was deleted"}
+                        </div>
+                      ) : (
+                        <>
+                          {m.body && <div className="whitespace-pre-wrap break-words">{m.body}</div>}
+                          {m.attachment_path && (
+                            <button onClick={() => downloadAttachment(m.attachment_path!)} className="mt-1 flex items-center gap-1 text-xs underline underline-offset-2">
+                              <Paperclip className="h-3 w-3" /> {m.attachment_name ?? "Attachment"}
+                            </button>
+                          )}
+                        </>
                       )}
                       <div className={`text-[10px] mt-1 ${mine ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
                         {new Date(m.created_at).toLocaleTimeString("en-KE", { hour: "2-digit", minute: "2-digit" })}
                       </div>
                     </div>
                     {!mine && (
-                      <button onClick={() => deleteMessageForMe(m.id)} title="Delete for me" className="mt-2 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive">
+                      <button onClick={() => setDeleteTarget(m)} title="Delete message" className="mt-2 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive">
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     )}
@@ -390,6 +422,23 @@ function ChatPage() {
           <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">Select a channel to start chatting</div>
         )}
       </div>
+
+      {/* Delete message: for everyone (own messages only) or just for me */}
+      {deleteTarget && (
+        <Picker title="Delete message?" onClose={() => setDeleteTarget(null)}>
+          {deleteTarget.sender_id === user?.id && !deleteTarget.deleted_at && (
+            <button onClick={() => deleteMessageForEveryone(deleteTarget)} className="w-full text-left px-3 py-2 rounded-md hover:bg-muted text-sm">
+              <div className="font-medium text-destructive">Delete for everyone</div>
+              <div className="text-xs text-muted-foreground">Removes it for everyone in this chat. They will see "This message was deleted".</div>
+            </button>
+          )}
+          <button onClick={() => deleteMessageForMe(deleteTarget.id)} className="w-full text-left px-3 py-2 rounded-md hover:bg-muted text-sm">
+            <div className="font-medium">Delete for me</div>
+            <div className="text-xs text-muted-foreground">Only removes it from your view. Everyone else still sees it.</div>
+          </button>
+          <button onClick={() => setDeleteTarget(null)} className="w-full text-left px-3 py-2 rounded-md hover:bg-muted text-sm text-muted-foreground">Cancel</button>
+        </Picker>
+      )}
 
       {/* DM picker */}
       {pickerOpen && (
