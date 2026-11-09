@@ -27,7 +27,10 @@ export function useTaxPage(search: { filter?: "open" }) {
   const [busyCell, setBusyCell] = useState<string | null>(null);
   const [assignOpenId, setAssignOpenId] = useState<string | null>(null);
   const [invoiceFor, setInvoiceFor] = useState<{ id: string; clientId: string; clientName?: string | null; description: string; needsReceipt: boolean } | null>(null);
-  const [batchFor, setBatchFor] = useState<{ clientId: string; returnIds: string[] } | null>(null);
+  const [batchFor, setBatchForRaw] = useState<{ clientId: string; returnIds: string[] } | null>(null);
+  // Checklist: filed obligations are blocked and hidden until their next filing
+  // period opens. This switch lets staff look at them (read-only) when needed.
+  const [showFiledInChecklist, setShowFiledInChecklist] = useState(false);
   // Filing Record: obligations ticked per client, filed together with "File selected".
   const [pickedReturns, setPickedReturns] = useState<Record<string, string[]>>({});
   const [clientFilter, setClientFilter] = useState("");
@@ -219,6 +222,26 @@ export function useTaxPage(search: { filter?: "open" }) {
     return [...list].sort((a, b) => (b.due_date ?? "").localeCompare(a.due_date ?? ""))[0];
   }
 
+  // The return an obligation is AWAITING right now, for the Checklist.
+  //  - a period that is open for filing (this month's first, else the oldest)
+  //  - null  -> nothing scheduled yet (the Checklist offers to schedule it)
+  //  - undefined -> the obligation is FILED and blocked: it stays out of the
+  //    awaiting list until its next filing period opens. Other obligations
+  //    that are still unfiled are never affected by it.
+  function awaitingReturn(clientId: string, taxType: string): any | null | undefined {
+    const list = returnsByKey.get(`${clientId}:${taxType}`) ?? [];
+    if (list.length === 0) return null;
+    const cadence = policies.find((x: any) => x.tax_type === taxType)?.cadence;
+    const byDue = (a: any, b: any) => (a.due_date ?? "").localeCompare(b.due_date ?? "");
+    const unfiled = list.filter((r: any) => r.status !== "filed").sort(byDue);
+    const fileable = unfiled.filter((r: any) => isFilingOpen(r.due_date, cadence));
+    if (fileable.length) {
+      return fileable.find((r: any) => (r.due_date ?? "").slice(0, 7) === currentFilingMonth) ?? fileable[0];
+    }
+    if (list.some((r: any) => r.status === "filed")) return undefined;
+    return unfiled[0] ?? null;
+  }
+
   // Accountability flags computed across ALL clients (not just the text
   // search) so the summary chips always reflect the true picture.
   const accStats = useMemo(() => {
@@ -229,7 +252,7 @@ export function useTaxPage(search: { filter?: "open" }) {
     clients.forEach(c => {
       activePolicies.forEach(pol => {
         if (!obligationMap.get(`${c.id}:${pol.tax_type}`)) return;
-        const cur = currentReturn(c.id, pol.tax_type);
+        const cur = awaitingReturn(c.id, pol.tax_type);
         if (!cur || cur.status === "filed") return;
         const over = periodsOverdue(cur.due_date, pol.cadence);
         const d = daysUntil(cur.due_date);
@@ -407,10 +430,28 @@ export function useTaxPage(search: { filter?: "open" }) {
   // without needing to drill into the per-type page first.
   // `skipInvoice` is only passed by the invoice prompt below once it has
   // generated the invoice (and stored the receipt), so neither check repeats.
+  // Only periods that are genuinely awaiting filing can be selected for a batch.
+  function setBatchFor(v: { clientId: string; returnIds: string[] } | null) {
+    if (!v) { setBatchForRaw(null); return; }
+    const valid = v.returnIds.filter(id => {
+      const r = returns.find((x: any) => x.id === id);
+      const cadence = r ? policies.find((x: any) => x.tax_type === r.return_type)?.cadence : undefined;
+      return !!r && r.status !== "filed" && !r.invoice_id && isFilingOpen(r.due_date, cadence);
+    });
+    if (valid.length < v.returnIds.length) {
+      toast.error("Filed or already-invoiced obligations were removed from the selection — a filed obligation is closed until its next filing period.");
+    }
+    if (valid.length) setBatchForRaw({ clientId: v.clientId, returnIds: valid });
+  }
+
   async function markFiled(returnId: string, filed: boolean, skipInvoice = false) {
     // A filed period is closed: only Director/Admin can reopen it, and the next
     // period can't be filed until its own filing window opens.
     const target = returns.find((x: any) => x.id === returnId);
+    if (filed && target?.status === "filed") {
+      toast.error("Already filed — this obligation is closed until its next filing period.");
+      return;
+    }
     if (!filed && target?.status === "filed" && !isAdmin) {
       toast.error("This period is already filed and closed. Only a Director or Admin can reopen it.");
       return;
@@ -456,14 +497,25 @@ export function useTaxPage(search: { filter?: "open" }) {
   // Checklist: ONE entry per client listing every obligation they hold (narrowed
   // to a single tax type when one is chosen). Obligations are added from the
   // client's own Tax tab, so un-obligated clients are never listed here.
+  const checklistScopePolicies = checklistType === ALL_TYPES ? activePolicies : activePolicies.filter(p => p.tax_type === checklistType);
+
   const checklistRows: ChecklistClientRow[] = displayClients
     .map(c => ({
       client: c,
-      items: (checklistType === ALL_TYPES ? activePolicies : activePolicies.filter(p => p.tax_type === checklistType))
+      items: checklistScopePolicies
         .filter(pol => obligationMap.get(`${c.id}:${pol.tax_type}`))
-        .map(pol => ({ pol, cur: currentReturn(c.id, pol.tax_type) })),
+        .map(pol => ({ pol, cur: showFiledInChecklist ? currentReturn(c.id, pol.tax_type) : awaitingReturn(c.id, pol.tax_type) }))
+        // undefined = filed and blocked until the next filing period
+        .filter(item => item.cur !== undefined)
+        .map(item => ({ pol: item.pol, cur: item.cur as any | null })),
     }))
     .filter(r => r.items.length > 0);
+
+  // How many obligations are currently filed-and-blocked (hidden from the list above).
+  const filedBlockedCount = displayClients.reduce((n, c) =>
+    n + checklistScopePolicies.filter(pol =>
+      obligationMap.get(`${c.id}:${pol.tax_type}`) && awaitingReturn(c.id, pol.tax_type) === undefined
+    ).length, 0);
 
   function stopObligation(clientId: string, pol: any, clientName: string) {
     if (confirm(`Stop the ${pol.label} obligation for ${clientName}? Open filings stay, but nothing new is scheduled.`)) {
@@ -547,6 +599,10 @@ export function useTaxPage(search: { filter?: "open" }) {
     staffMap,
     returnsByKey,
     currentReturn,
+    awaitingReturn,
+    showFiledInChecklist,
+    setShowFiledInChecklist,
+    filedBlockedCount,
     accStats,
     obligatedClientCount,
     displayClients,

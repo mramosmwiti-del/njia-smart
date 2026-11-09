@@ -1,4 +1,4 @@
-import { AlertTriangle, Clock, UserX, LayoutGrid } from "lucide-react";
+import { AlertTriangle, Check, Clock, UserX, LayoutGrid } from "lucide-react";
 import { formatDate } from "@/lib/format";
 import { TaxClientChecklist } from "@/components/tax-client-checklist";
 import { TaxAssignDialog } from "@/components/tax-assign-dialog";
@@ -7,7 +7,7 @@ import { ALL_TYPES } from "./tax-utils";
 import type { TaxCtx } from "./use-tax-page";
 
 export function ChecklistTab({ ctx }: { ctx: TaxCtx }) {
-  const { isAdmin, staff, collabByReturn, busyCell, assignOpenId, setAssignOpenId, setBatchFor, clientFilter, setClientFilter, accFilter, setAccFilter, checklistType, setChecklistType, load, activePolicies, renderMissing, staffMap, accStats, obligatedClientCount, markFiled, checklistRows, stopObligation } = ctx;
+  const { showFiledInChecklist, setShowFiledInChecklist, filedBlockedCount, isAdmin, staff, collabByReturn, busyCell, assignOpenId, setAssignOpenId, setBatchFor, clientFilter, setClientFilter, accFilter, setAccFilter, checklistType, setChecklistType, load, activePolicies, renderMissing, staffMap, accStats, obligatedClientCount, markFiled, checklistRows, stopObligation } = ctx;
   return (
     <>
         <div className="space-y-3">
@@ -27,6 +27,20 @@ export function ChecklistTab({ ctx }: { ctx: TaxCtx }) {
               <ChecklistChip active={accFilter === "unassigned"} onClick={() => setAccFilter("unassigned")} icon={UserX} label="Unassigned" value={accStats.flagged.unassigned.size} tone="amber" />
             </div>
           </div>
+
+          {(filedBlockedCount > 0 || showFiledInChecklist) && (
+            <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+              <Check className="h-3.5 w-3.5 text-emerald-600" />
+              <span>
+                {showFiledInChecklist
+                  ? "Showing filed obligations too (read-only)."
+                  : `${filedBlockedCount} filed obligation${filedBlockedCount === 1 ? "" : "s"} blocked and hidden until the next filing period opens.`}
+              </span>
+              <button type="button" onClick={() => setShowFiledInChecklist(v => !v)} className="underline hover:text-foreground">
+                {showFiledInChecklist ? "Hide filed" : "Show filed"}
+              </button>
+            </div>
+          )}
 
           {activePolicies.length === 0 ? (
             <p className="text-sm text-muted-foreground p-4">No active tax policies yet. Ask an admin to configure one under Settings.</p>
