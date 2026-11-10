@@ -146,9 +146,22 @@ function ClientsList() {
 
   useEffect(() => { setSelected(new Set()); }, [typeFilter, stateFilter, noOblFilter, q]);
 
-  const pausedCount = rows.filter(r => r.is_paused).length;
-  // Clients with no active obligation (paused ones only count for Admin/Director, who can see them).
-  const noOblCount = rows.filter(r => (isAdmin || !r.is_paused) && !oblClientIds.has(r.id)).length;
+  // Tab totals: each tab's number is "how many clients you'd see if you picked it",
+  // given the search and the OTHER two filter groups, so the numbers always match the list.
+  const tabCounts = useMemo(() => {
+    const passes = (r: any, t: string, st: string, none: boolean) =>
+      (isAdmin || !r.is_paused) &&
+      (t === "all" || (r.client_type ?? "company") === t) &&
+      (isAdmin ? (st === "all" || (st === "paused" ? r.is_paused : !r.is_paused)) : !r.is_paused) &&
+      (!none || !oblClientIds.has(r.id)) &&
+      clientMatches(r, q.trim());
+    const n = (t: string, st: string, none: boolean) => rows.filter(r => passes(r, t, st, none)).length;
+    return {
+      type: { all: n("all", stateFilter, noOblFilter), company: n("company", stateFilter, noOblFilter), individual: n("individual", stateFilter, noOblFilter) },
+      obl: { all: n(typeFilter, stateFilter, false), none: n(typeFilter, stateFilter, true) },
+      status: { active: n(typeFilter, "active", noOblFilter), paused: n(typeFilter, "paused", noOblFilter), all: n(typeFilter, "all", noOblFilter) },
+    };
+  }, [rows, q, typeFilter, stateFilter, noOblFilter, oblClientIds, isAdmin]);
   // What "Pause all" would act on: the clients currently listed that are not already paused.
   const pausableNoObl = noOblFilter ? filtered.filter(r => !r.is_paused) : [];
 
@@ -226,14 +239,14 @@ function ClientsList() {
           <span className="text-xs text-muted-foreground">Type</span>
           <div className="inline-flex rounded-md border bg-background overflow-hidden text-sm">
             {([["all","All"],["company","Companies"],["individual","Individuals"]] as const).map(([v,l]) => (
-              <button key={v} onClick={()=>setTypeFilter(v)} className={`h-9 px-3 ${typeFilter===v ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>{l}</button>
+              <button key={v} onClick={()=>setTypeFilter(v)} className={`h-9 px-3 ${typeFilter===v ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>{l} ({tabCounts.type[v]})</button>
             ))}
           </div>
         </div>
         <div className="flex items-center gap-1.5">
           <span className="text-xs text-muted-foreground">Obligations</span>
           <div className="inline-flex rounded-md border bg-background overflow-hidden text-sm">
-            {([[false,"All"],[true,`None (${noOblCount})`]] as const).map(([v,l]) => (
+            {([[false,`All (${tabCounts.obl.all})`],[true,`None (${tabCounts.obl.none})`]] as const).map(([v,l]) => (
               <button key={String(v)} onClick={()=>setNoOblFilter(v)} title={v ? "Clients with no active tax obligations" : "Clients with or without obligations"} className={`h-9 px-3 ${noOblFilter===v ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>{l}</button>
             ))}
           </div>
@@ -242,7 +255,7 @@ function ClientsList() {
           <div className="flex items-center gap-1.5">
             <span className="text-xs text-muted-foreground">Status</span>
             <div className="inline-flex rounded-md border bg-background overflow-hidden text-sm">
-              {([["active","Active"],["paused",`Paused${pausedCount ? ` (${pausedCount})` : ""}`],["all","All"]] as const).map(([v,l]) => (
+              {([["active",`Active (${tabCounts.status.active})`],["paused",`Paused (${tabCounts.status.paused})`],["all",`All (${tabCounts.status.all})`]] as const).map(([v,l]) => (
                 <button key={v} onClick={()=>setStateFilter(v)} className={`h-9 px-3 ${stateFilter===v ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>{l}</button>
               ))}
             </div>
