@@ -4,7 +4,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Upload, Download, Trash2, FileText, Eye, X, Search, FolderOpen, ShieldCheck, CalendarClock, Link2 } from "lucide-react";
 import { formatDate, formatDateTime } from "@/lib/format";
-import { useAuth } from "@/lib/auth";
 import { useLiveRefresh } from "@/hooks/use-live-refresh";
 import { isOnline } from "@/lib/offline/status";
 
@@ -65,7 +64,6 @@ const CATEGORY_LABEL: Record<string, string> = Object.fromEntries([
 const inputClass = "h-9 w-full min-w-0 rounded-md border bg-background px-3 text-sm";
 
 function DocsPage() {
-  const { isAdmin } = useAuth();
   const [rows, setRows] = useState<LibraryDocument[]>([]);
   const [clients, setClients] = useState<any[]>([]);
   const [engagements, setEngagements] = useState<any[]>([]);
@@ -343,7 +341,7 @@ function DocsPage() {
                 <td className="px-3 py-2">{r.periodLabel || "—"}</td>
                 <td className="px-3 py-2">{r.expiresOn ? formatDate(r.expiresOn) : "—"}</td>
                 <td className="whitespace-nowrap px-3 py-2 text-xs text-muted-foreground">{formatDate(r.createdAt)}{r.updatedAt && new Date(r.updatedAt).getTime() - new Date(r.createdAt).getTime() > 60000 && <div className="text-[10px]">Edited {formatDateTime(r.updatedAt)}</div>}</td>
-                <td className="whitespace-nowrap px-3 py-2 text-right"><div className="inline-flex items-center gap-3"><button onClick={() => void view(r)} className="inline-flex items-center gap-1 text-xs text-primary"><Eye className="h-3 w-3" />View</button><button onClick={() => void download(r)} className="inline-flex items-center gap-1 text-xs text-primary"><Download className="h-3 w-3" />Download</button>{isAdmin && r.canDelete && <button onClick={() => void remove(r)} aria-label={`Delete ${r.title}`} className="text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>}</div></td>
+                <td className="whitespace-nowrap px-3 py-2 text-right"><div className="inline-flex items-center gap-3"><button onClick={() => void view(r)} className="inline-flex items-center gap-1 text-xs text-primary"><Eye className="h-3 w-3" />View</button><button onClick={() => void download(r)} className="inline-flex items-center gap-1 text-xs text-primary"><Download className="h-3 w-3" />Download</button>{r.canDelete && <button onClick={() => void remove(r)} aria-label={`Delete ${r.title}`} className="text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>}</div></td>
               </tr>)}
             </tbody>
           </table>
