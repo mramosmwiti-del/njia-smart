@@ -64,6 +64,9 @@ function ClientsList() {
   const [stateFilter, setStateFilter] = useState<"active"|"paused"|"all">("active");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
+  // Clients holding at least one active tax obligation, and the "no obligations" filter.
+  const [oblClientIds, setOblClientIds] = useState<Set<string>>(new Set());
+  const [noOblFilter, setNoOblFilter] = useState(false);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<any>({ client_type:"company", company_name:"", first_name:"", last_name:"", id_number:"", kra_pin:"", reg_number:"", industry:"", email:"", phone:"", engagement_type:"", notes:"" });
   const [busy, setBusy] = useState(false);
@@ -83,11 +86,31 @@ function ClientsList() {
       (map[a.client_id] ||= []).push(name);
     });
     setAssignByClient(map);
+    // Active obligations, read page by page (PostgREST caps a request at 1000 rows).
+    const withObl = new Set<string>();
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await supabase.from("client_tax_obligations").select("client_id").eq("active", true).order("id").range(from, from + 999);
+      if (error || !data) break;
+      data.forEach((o: any) => withObl.add(o.client_id));
+      if (data.length < 1000) break;
+    }
+    setOblClientIds(withObl);
   }
   useEffect(() => { load(); }, []);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
+    const full = [form.first_name, form.last_name].filter(Boolean).join(" ").trim();
+    const intendedName = (form.client_type === "individual" ? (form.company_name?.trim() || full) : form.company_name).trim();
+    // Warn (don't block) if a client with the same name already exists --
+    // catches accidental duplicate entry while still allowing genuinely
+    // separate clients that happen to share a name.
+    if (intendedName) {
+      const dupe = rows.find(r => (r.company_name ?? "").trim().toLowerCase() === intendedName.toLowerCase());
+      if (dupe && !confirm(`A client named "${dupe.company_name}" already exists${dupe.is_paused ? " (paused)" : ""}. Add "${intendedName}" as a new, separate client anyway?`)) {
+        return;
+      }
+    }
     setBusy(true);
     // Ensure the session is fresh before writing. If the tab sat idle and the
     // access token quietly expired, this waits for Supabase's client to
@@ -97,7 +120,6 @@ function ClientsList() {
     const { data: { user } } = await supabase.auth.getUser();
     const payload: any = { ...form, created_by: user?.id };
     if (form.client_type === "individual") {
-      const full = [form.first_name, form.last_name].filter(Boolean).join(" ").trim();
       if (!form.company_name?.trim()) payload.company_name = full || "Individual";
       payload.reg_number = null;
     }
@@ -113,15 +135,20 @@ function ClientsList() {
       (isAdmin || !r.is_paused) &&
       (typeFilter === "all" || (r.client_type ?? "company") === typeFilter) &&
       (isAdmin ? (stateFilter === "all" || (stateFilter === "paused" ? r.is_paused : !r.is_paused)) : !r.is_paused) &&
+      (!noOblFilter || !oblClientIds.has(r.id)) &&
       clientMatches(r, q.trim())
     )
     .sort((a, b) => {
       const nameA = String(a.company_name ?? [a.first_name, a.last_name].filter(Boolean).join(" ") ?? "").trim();
       const nameB = String(b.company_name ?? [b.first_name, b.last_name].filter(Boolean).join(" ") ?? "").trim();
       return nameA.localeCompare(nameB, undefined, { sensitivity: "base", numeric: true });
-    }), [rows, typeFilter, stateFilter, q, isAdmin]);
+    }), [rows, typeFilter, stateFilter, q, isAdmin, noOblFilter, oblClientIds]);
 
   const pausedCount = rows.filter(r => r.is_paused).length;
+  // Clients with no active obligation (paused ones only count for Admin/Director, who can see them).
+  const noOblCount = rows.filter(r => (isAdmin || !r.is_paused) && !oblClientIds.has(r.id)).length;
+  // What "Pause all" would act on: the clients currently listed that are not already paused.
+  const pausableNoObl = noOblFilter ? filtered.filter(r => !r.is_paused) : [];
 
   function toggleSelected(id: string) {
     setSelected(s => { const next = new Set(s); next.has(id) ? next.delete(id) : next.add(id); return next; });
@@ -198,6 +225,32 @@ function ClientsList() {
             <button key={v} onClick={()=>setTypeFilter(v)} className={`h-9 px-3 ${typeFilter===v ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>{l}</button>
           ))}
         </div>
+        <button
+          onClick={() => setNoOblFilter(v => !v)}
+          title="Clients with no active tax obligations"
+          className={`h-9 px-3 rounded-md border text-sm ${noOblFilter ? "bg-primary text-primary-foreground border-primary" : "bg-background hover:bg-muted"}`}
+        >
+          No obligations ({noOblCount})
+        </button>
+        {isAdmin && noOblFilter && pausableNoObl.length > 0 && (
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <button disabled={bulkBusy} className="h-9 px-3 rounded-md border border-destructive/40 text-destructive text-sm inline-flex items-center gap-2 hover:bg-destructive/10 disabled:opacity-50">
+                <Pause className="h-4 w-4" /> Pause all {pausableNoObl.length}
+              </button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Pause {pausableNoObl.length} client{pausableNoObl.length === 1 ? "" : "s"} with no obligations?</AlertDialogTitle>
+                <AlertDialogDescription>They will be hidden from staff (only Admin/Director still see them) until resumed. Nothing is deleted.</AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={async () => { setBulkBusy(true); await setPaused(pausableNoObl.map(r => r.id), true); setBulkBusy(false); }}>Pause all</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        )}
         {isAdmin && <div className="inline-flex rounded-md border bg-background overflow-hidden text-sm">
           {([["active","Active"],["paused",`Paused${pausedCount ? ` (${pausedCount})` : ""}`],["all","All"]] as const).map(([v,l]) => (
             <button key={v} onClick={()=>setStateFilter(v)} className={`h-9 px-3 ${stateFilter===v ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>{l}</button>
