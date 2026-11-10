@@ -45,6 +45,8 @@ function HrPage() {
   const [genderFilter, setGenderFilter] = useState<GenderFilter>("all");
 
   const [profiles, setProfiles] = useState<any[]>([]);
+  // Everyone a leave request can nominate as reliever (any staff member, any role).
+  const [relievers, setRelievers] = useState<{ id: string; full_name: string | null; job_title?: string | null; roles?: string[] }[]>([]);
   const [rolesByUser, setRolesByUser] = useState<Record<string, string[]>>({});
   const [employment, setEmployment] = useState<Record<string, any>>({});
 
@@ -65,7 +67,7 @@ function HrPage() {
 
   async function load() {
     setLoading(true);
-    const [p, ur, he, lt, lr, bal, ps] = await Promise.all([
+    const [p, ur, he, lt, lr, bal, ps, rel] = await Promise.all([
       supabase.from("profiles").select("*").order("full_name"),
       supabase.from("user_roles").select("*"),
       supabase.from("hr_employment").select("*"),
@@ -73,11 +75,17 @@ function HrPage() {
       supabase.from("leave_requests").select("*, profiles!leave_requests_employee_id_fkey(full_name)").order("created_at", { ascending: false }),
       supabase.from("leave_balances").select("*"),
       supabase.from("payslips").select("*").order("period", { ascending: false }),
+      (supabase as any).rpc("list_leave_relievers"),
     ]);
     const byUser: Record<string, string[]> = {};
     (ur.data ?? []).forEach((r: any) => { (byUser[r.user_id] ??= []).push(r.role); });
     setRolesByUser(byUser);
     setProfiles(p.data ?? []);
+    // Reliever list comes from a role-independent function; fall back to the profiles list
+    // if it isn't installed yet.
+    setRelievers(!rel.error && Array.isArray(rel.data)
+      ? rel.data
+      : (p.data ?? []).filter((x: any) => x.id !== user?.id).map((x: any) => ({ id: x.id, full_name: x.full_name })));
     setEmployment(Object.fromEntries((he.data ?? []).map((e: any) => [e.employee_id, e])));
     setLeaveTypes(lt.data ?? []);
     setMyBalances((bal.data ?? []).filter((b: any) => b.employee_id === user?.id));
@@ -500,8 +508,13 @@ function HrPage() {
             )}
             <select required value={reqForm.reliever_id || ""} onChange={e => setReqForm({ ...reqForm, reliever_id: e.target.value })} className="w-full h-9 px-3 rounded-md border bg-background text-sm">
               <option value="">Select reliever…</option>
-              {profiles.filter(p => p.id !== user?.id).map(p => <option key={p.id} value={p.id}>{p.full_name || p.email || p.id}</option>)}
+              {relievers.map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.full_name || p.id}{p.job_title ? ` — ${p.job_title}` : p.roles?.length ? ` — ${p.roles.map(r => ROLE_LABELS[r as AppRole] ?? r).join(", ")}` : ""}
+                </option>
+              ))}
             </select>
+            {relievers.length === 0 && <p className="text-xs text-destructive">No colleagues were found to nominate as reliever. Please refresh; if this persists, contact an admin.</p>}
             <p className="text-xs text-muted-foreground">Your reliever reviews first. If approved, outstanding client tasks and deadlines assigned to you are handed over before the director's final decision.</p>
             <div className="grid grid-cols-2 gap-2">
               <input required type="date" value={reqForm.start_date} onChange={e => setReqForm({ ...reqForm, start_date: e.target.value })} className="h-9 px-3 rounded-md border bg-background text-sm" />
