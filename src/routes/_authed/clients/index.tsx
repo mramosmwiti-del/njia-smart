@@ -144,6 +144,8 @@ function ClientsList() {
       return nameA.localeCompare(nameB, undefined, { sensitivity: "base", numeric: true });
     }), [rows, typeFilter, stateFilter, q, isAdmin, noOblFilter, oblClientIds]);
 
+  useEffect(() => { setSelected(new Set()); }, [typeFilter, stateFilter, noOblFilter, q]);
+
   const pausedCount = rows.filter(r => r.is_paused).length;
   // Clients with no active obligation (paused ones only count for Admin/Director, who can see them).
   const noOblCount = rows.filter(r => (isAdmin || !r.is_paused) && !oblClientIds.has(r.id)).length;
@@ -220,43 +222,60 @@ function ClientsList() {
           <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search company, individual or KRA PIN…" className="w-full h-9 pl-9 pr-3 rounded-md border bg-background text-sm" />
         </div>
-        <div className="inline-flex rounded-md border bg-background overflow-hidden text-sm">
-          {([["all","All Clients"],["company","Companies"],["individual","Individuals"]] as const).map(([v,l]) => (
-            <button key={v} onClick={()=>setTypeFilter(v)} className={`h-9 px-3 ${typeFilter===v ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>{l}</button>
-          ))}
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs text-muted-foreground">Type</span>
+          <div className="inline-flex rounded-md border bg-background overflow-hidden text-sm">
+            {([["all","All"],["company","Companies"],["individual","Individuals"]] as const).map(([v,l]) => (
+              <button key={v} onClick={()=>setTypeFilter(v)} className={`h-9 px-3 ${typeFilter===v ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>{l}</button>
+            ))}
+          </div>
         </div>
-        <button
-          onClick={() => setNoOblFilter(v => !v)}
-          title="Clients with no active tax obligations"
-          className={`h-9 px-3 rounded-md border text-sm ${noOblFilter ? "bg-primary text-primary-foreground border-primary" : "bg-background hover:bg-muted"}`}
-        >
-          No obligations ({noOblCount})
-        </button>
-        {isAdmin && noOblFilter && pausableNoObl.length > 0 && (
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <button disabled={bulkBusy} className="h-9 px-3 rounded-md border border-destructive/40 text-destructive text-sm inline-flex items-center gap-2 hover:bg-destructive/10 disabled:opacity-50">
-                <Pause className="h-4 w-4" /> Pause all {pausableNoObl.length}
-              </button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Pause {pausableNoObl.length} client{pausableNoObl.length === 1 ? "" : "s"} with no obligations?</AlertDialogTitle>
-                <AlertDialogDescription>They will be hidden from staff (only Admin/Director still see them) until resumed. Nothing is deleted.</AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={async () => { setBulkBusy(true); await setPaused(pausableNoObl.map(r => r.id), true); setBulkBusy(false); }}>Pause all</AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs text-muted-foreground">Obligations</span>
+          <div className="inline-flex rounded-md border bg-background overflow-hidden text-sm">
+            {([[false,"All"],[true,`None (${noOblCount})`]] as const).map(([v,l]) => (
+              <button key={String(v)} onClick={()=>setNoOblFilter(v)} title={v ? "Clients with no active tax obligations" : "Clients with or without obligations"} className={`h-9 px-3 ${noOblFilter===v ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>{l}</button>
+            ))}
+          </div>
+        </div>
+        {isAdmin && (
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-muted-foreground">Status</span>
+            <div className="inline-flex rounded-md border bg-background overflow-hidden text-sm">
+              {([["active","Active"],["paused",`Paused${pausedCount ? ` (${pausedCount})` : ""}`],["all","All"]] as const).map(([v,l]) => (
+                <button key={v} onClick={()=>setStateFilter(v)} className={`h-9 px-3 ${stateFilter===v ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>{l}</button>
+              ))}
+            </div>
+          </div>
         )}
-        {isAdmin && <div className="inline-flex rounded-md border bg-background overflow-hidden text-sm">
-          {([["active","Active"],["paused",`Paused${pausedCount ? ` (${pausedCount})` : ""}`],["all","All"]] as const).map(([v,l]) => (
-            <button key={v} onClick={()=>setStateFilter(v)} className={`h-9 px-3 ${stateFilter===v ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>{l}</button>
-          ))}
-        </div>}
       </div>
+
+      {noOblFilter && (
+        <div className="shrink-0 bg-muted/40 border rounded-lg px-3 py-2 flex flex-wrap items-center gap-3 text-sm">
+          <span className="text-muted-foreground">
+            Showing {filtered.length} client{filtered.length === 1 ? "" : "s"} with no active tax obligations.
+          </span>
+          {isAdmin && pausableNoObl.length > 0 && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <button disabled={bulkBusy} className="ml-auto h-8 px-3 rounded-md border border-destructive/40 text-destructive text-sm inline-flex items-center gap-2 hover:bg-destructive/10 disabled:opacity-50">
+                  <Pause className="h-4 w-4" /> Pause these {pausableNoObl.length}
+                </button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Pause {pausableNoObl.length} client{pausableNoObl.length === 1 ? "" : "s"} with no obligations?</AlertDialogTitle>
+                  <AlertDialogDescription>Only the clients listed now (matching your search and filters) are paused. They are hidden from staff (Admin/Director still see them) until resumed. Nothing is deleted.</AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={async () => { setBulkBusy(true); await setPaused(pausableNoObl.map(r => r.id), true); setBulkBusy(false); }}>Pause</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+        </div>
+      )}
 
       {selected.size > 0 && (
         <div className="shrink-0 bg-card border rounded-lg p-3 flex flex-wrap items-center gap-3">
