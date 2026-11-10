@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
+import { Eye, EyeOff } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -10,6 +11,33 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+
+/** Password box with a show/hide eye. */
+function PasswordInput({ value, onChange, autoComplete }: { value: string; onChange: (v: string) => void; autoComplete?: string }) {
+  const [show, setShow] = useState(false);
+  return (
+    <div className="relative mt-1">
+      <input
+        required
+        type={show ? "text" : "password"}
+        minLength={6}
+        value={value}
+        autoComplete={autoComplete}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full h-10 pl-3 pr-10 rounded-md border bg-background text-sm"
+      />
+      <button
+        type="button"
+        onClick={() => setShow((v) => !v)}
+        aria-label={show ? "Hide password" : "Show password"}
+        title={show ? "Hide password" : "Show password"}
+        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground"
+      >
+        {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+      </button>
+    </div>
+  );
+}
 
 export const Route = createFileRoute("/login")({
   validateSearch: (s: Record<string, unknown>) => ({
@@ -177,11 +205,7 @@ function LoginPage() {
             </div>
             <div>
               <label className="text-sm font-medium">Password</label>
-              <input
-                required type="password" minLength={6} value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="mt-1 w-full h-10 px-3 rounded-md border bg-background text-sm"
-              />
+              <PasswordInput value={password} onChange={setPassword} autoComplete="current-password" />
               <div className="mt-2 text-right">
                 <button
                   type="button"
@@ -276,25 +300,11 @@ function LoginPage() {
             <form onSubmit={updatePassword} className="space-y-4">
               <div>
                 <label className="text-sm font-medium">New password</label>
-                <input
-                  required
-                  type="password"
-                  minLength={6}
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  className="mt-1 w-full h-10 px-3 rounded-md border bg-background text-sm"
-                />
+                <PasswordInput value={newPassword} onChange={setNewPassword} autoComplete="new-password" />
               </div>
               <div>
                 <label className="text-sm font-medium">Confirm new password</label>
-                <input
-                  required
-                  type="password"
-                  minLength={6}
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="mt-1 w-full h-10 px-3 rounded-md border bg-background text-sm"
-                />
+                <PasswordInput value={confirmPassword} onChange={setConfirmPassword} autoComplete="new-password" />
               </div>
               <button
                 type="submit"
