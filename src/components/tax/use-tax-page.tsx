@@ -34,7 +34,7 @@ export function useTaxPage(search: { filter?: "open" }) {
   // Filing Record: obligations ticked per client, filed together with "File selected".
   const [pickedReturns, setPickedReturns] = useState<Record<string, string[]>>({});
   const [clientFilter, setClientFilter] = useState("");
-  const [accFilter, setAccFilter] = useState<"all" | "overdue" | "duesoon" | "unassigned">("all");
+  const [accFilter, setAccFilter] = useState<"all" | "overdue" | "duesoon" | "unassigned" | "none">("all");
   const [checklistType, setChecklistType] = useState<string>(ALL_TYPES);
   const [reportType, setReportType] = useState<string>("");
   const [annualYear, setAnnualYear] = useState<string>(todayNairobi().slice(0, 4));
@@ -269,8 +269,20 @@ export function useTaxPage(search: { filter?: "open" }) {
     [clients, activePolicies, obligationMap]
   );
 
+  // Clients with NO active obligation on any active tax policy (all clients,
+  // regardless of the name search, so the chip count is the true total).
+  const noObligationAll = useMemo(
+    () => clients.filter(c => !activePolicies.some(p => obligationMap.get(`${c.id}:${p.tax_type}`))),
+    [clients, activePolicies, obligationMap]
+  );
+  const noObligationClients = useMemo(() => {
+    const ids = new Set(noObligationAll.map(c => c.id));
+    return filteredClients.filter(c => ids.has(c.id));
+  }, [noObligationAll, filteredClients]);
+
   const displayClients = useMemo(() => {
     if (accFilter === "all") return filteredClients;
+    if (accFilter === "none") return [];
     const set = accStats.flagged[accFilter];
     return filteredClients.filter(c => set.has(c.id));
   }, [filteredClients, accFilter, accStats]);
@@ -605,6 +617,8 @@ export function useTaxPage(search: { filter?: "open" }) {
     filedBlockedCount,
     accStats,
     obligatedClientCount,
+    noObligationAll,
+    noObligationClients,
     displayClients,
     reportRows,
     assigneeScopedReportRows,

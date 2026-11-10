@@ -1,4 +1,5 @@
-import { AlertTriangle, Check, Clock, UserX, LayoutGrid } from "lucide-react";
+import { AlertTriangle, Check, Clock, UserX, LayoutGrid, Ban } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 import { formatDate } from "@/lib/format";
 import { TaxClientChecklist } from "@/components/tax-client-checklist";
 import { TaxAssignDialog } from "@/components/tax-assign-dialog";
@@ -7,7 +8,7 @@ import { ALL_TYPES } from "./tax-utils";
 import type { TaxCtx } from "./use-tax-page";
 
 export function ChecklistTab({ ctx }: { ctx: TaxCtx }) {
-  const { showFiledInChecklist, setShowFiledInChecklist, filedBlockedCount, isAdmin, staff, collabByReturn, busyCell, assignOpenId, setAssignOpenId, setBatchFor, clientFilter, setClientFilter, accFilter, setAccFilter, checklistType, setChecklistType, load, activePolicies, renderMissing, staffMap, accStats, obligatedClientCount, markFiled, checklistRows, stopObligation } = ctx;
+  const { showFiledInChecklist, setShowFiledInChecklist, filedBlockedCount, isAdmin, staff, collabByReturn, busyCell, assignOpenId, setAssignOpenId, setBatchFor, clientFilter, setClientFilter, accFilter, setAccFilter, checklistType, setChecklistType, load, activePolicies, renderMissing, staffMap, accStats, obligatedClientCount, noObligationAll, noObligationClients, markFiled, checklistRows, stopObligation } = ctx;
   return (
     <>
         <div className="space-y-3">
@@ -25,6 +26,7 @@ export function ChecklistTab({ ctx }: { ctx: TaxCtx }) {
               <ChecklistChip active={accFilter === "overdue"} onClick={() => setAccFilter("overdue")} icon={AlertTriangle} label="Overdue" value={accStats.flagged.overdue.size} tone="destructive" />
               <ChecklistChip active={accFilter === "duesoon"} onClick={() => setAccFilter("duesoon")} icon={Clock} label="Due ≤7 days" value={accStats.flagged.duesoon.size} tone="amber" />
               <ChecklistChip active={accFilter === "unassigned"} onClick={() => setAccFilter("unassigned")} icon={UserX} label="Unassigned" value={accStats.flagged.unassigned.size} tone="amber" />
+              <ChecklistChip active={accFilter === "none"} onClick={() => setAccFilter("none")} icon={Ban} label="No obligations" value={noObligationAll.length} tone="amber" />
             </div>
           </div>
 
@@ -42,7 +44,25 @@ export function ChecklistTab({ ctx }: { ctx: TaxCtx }) {
             </div>
           )}
 
-          {activePolicies.length === 0 ? (
+          {accFilter === "none" ? (
+            <div className="bg-card border rounded-lg overflow-hidden">
+              <p className="px-4 py-3 border-b text-xs text-muted-foreground">
+                {noObligationClients.length} client{noObligationClients.length === 1 ? "" : "s"} with no tax obligations. Open a client's Tax tab to add one.
+              </p>
+              {noObligationClients.length === 0 ? (
+                <div className="py-10 text-center text-sm text-muted-foreground">Every client has at least one obligation.</div>
+              ) : (
+                <div className="divide-y">
+                  {noObligationClients.map((c: any) => (
+                    <Link key={c.id} to="/clients/$id" params={{ id: c.id }} className="flex items-center justify-between px-4 py-2.5 text-sm hover:bg-muted/30">
+                      <span className="font-medium">{c.company_name}</span>
+                      <span className="text-xs text-primary">Add obligations →</span>
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : activePolicies.length === 0 ? (
             <p className="text-sm text-muted-foreground p-4">No active tax policies yet. Ask an admin to configure one under Settings.</p>
           ) : (
             <TaxClientChecklist
