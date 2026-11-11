@@ -61,14 +61,8 @@ const NAV: NavItem[] = [
     ],
   },
   { to: "/chat", label: "Chat", icon: MessageSquare },
-  {
-    label: "Tasks & Calendar",
-    icon: ListTodo,
-    children: [
-      { to: "/tasks", label: "Tasks", icon: ListTodo },
-      { to: "/calendar", label: "Calendar", icon: CalendarDays },
-    ],
-  },
+  { to: "/tasks", label: "Tasks", icon: ListTodo },
+  { to: "/calendar", label: "Calendar", icon: CalendarDays },
   { to: "/accounts", label: "Accounts", icon: Wallet },
   { to: "/announcements", label: "Announcements", icon: Megaphone },
   {
