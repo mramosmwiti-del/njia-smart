@@ -47,7 +47,7 @@ function Settings() {
   useEffect(()=>{ load(); }, [user, isAdmin]);
 
   async function saveProfile() {
-    const { error } = await supabase.from("profiles").update({ full_name: profile.full_name, department: profile.department, phone: profile.phone }).eq("id", user!.id);
+    const { error } = await supabase.from("profiles").update({ full_name: profile.full_name, phone: profile.phone }).eq("id", user!.id);
     if (error) toast.error(error.message); else toast.success("Profile updated");
   }
 
@@ -87,7 +87,6 @@ function Settings() {
         <h2 className="font-semibold">Profile</h2>
         <div className="grid sm:grid-cols-2 gap-3">
           <div><label className="text-xs">Full name</label><input value={profile.full_name||""} onChange={e=>setProfile({...profile, full_name:e.target.value})} className="mt-1 w-full h-9 px-3 rounded-md border bg-background text-sm" /></div>
-          <div><label className="text-xs">Department</label><input value={profile.department||""} onChange={e=>setProfile({...profile, department:e.target.value})} className="mt-1 w-full h-9 px-3 rounded-md border bg-background text-sm" /></div>
           <div><label className="text-xs">Phone</label><input value={profile.phone||""} onChange={e=>setProfile({...profile, phone:e.target.value})} className="mt-1 w-full h-9 px-3 rounded-md border bg-background text-sm" /></div>
           <div><label className="text-xs">Email</label><input disabled value={user?.email||""} className="mt-1 w-full h-9 px-3 rounded-md border bg-muted text-sm text-muted-foreground" /></div>
         </div>
