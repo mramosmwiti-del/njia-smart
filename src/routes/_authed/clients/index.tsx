@@ -198,7 +198,7 @@ function ClientsList() {
   }
 
   return (
-    <div className="flex flex-col gap-4 h-[calc(100vh-6.5rem)]">
+    <div className="flex flex-col gap-4 h-[calc(100dvh-6.5rem)]">
       <div className="shrink-0 flex flex-wrap items-center gap-3 justify-between">
         <div>
           <h1 className="text-2xl font-bold">Clients</h1>
