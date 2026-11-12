@@ -221,16 +221,16 @@ function InvoiceDetail() {
 
         {/* Add item (Director/Admin only) */}
         {!restricted && (
-        <form onSubmit={addItem} className="grid grid-cols-12 gap-2 mb-4 print:hidden">
-          <input list="invoice-item-names" placeholder="Item (e.g. Tax Advisory: Tax Advisory and Consultancy)" value={newItem.item_name} onChange={e => setNewItem({ ...newItem, item_name: e.target.value })} className="col-span-6 h-9 px-2 border rounded-md bg-background text-sm" />
-          <input placeholder="Description (e.g. Monthly returns filing)" value={newItem.description} onChange={e => setNewItem({ ...newItem, description: e.target.value })} className="col-span-6 h-9 px-2 border rounded-md bg-background text-sm" />
-          <input type="date" title="Service date" value={newItem.service_date} onChange={e => setNewItem({ ...newItem, service_date: e.target.value })} className="col-span-3 h-9 px-2 border rounded-md bg-background text-sm" />
-          <input type="number" step="0.01" placeholder="Qty" value={newItem.quantity} onChange={e => setNewItem({ ...newItem, quantity: Number(e.target.value) })} className="col-span-2 h-9 px-2 border rounded-md bg-background text-sm text-right" />
-          <input type="number" step="0.01" placeholder="Rate" value={newItem.unit_price} onChange={e => setNewItem({ ...newItem, unit_price: Number(e.target.value) })} className="col-span-2 h-9 px-2 border rounded-md bg-background text-sm text-right" />
-          <select value={newItem.tax_code} onChange={e => setNewItem({ ...newItem, tax_code: e.target.value })} className="col-span-2 h-9 px-2 border rounded-md bg-background text-sm">
+        <form onSubmit={addItem} className="grid grid-cols-2 sm:grid-cols-12 gap-2 mb-4 print:hidden">
+          <input list="invoice-item-names" placeholder="Item (e.g. Tax Advisory: Tax Advisory and Consultancy)" value={newItem.item_name} onChange={e => setNewItem({ ...newItem, item_name: e.target.value })} className="col-span-2 sm:col-span-6 h-9 px-2 border rounded-md bg-background text-sm" />
+          <input placeholder="Description (e.g. Monthly returns filing)" value={newItem.description} onChange={e => setNewItem({ ...newItem, description: e.target.value })} className="col-span-2 sm:col-span-6 h-9 px-2 border rounded-md bg-background text-sm" />
+          <input type="date" title="Service date" value={newItem.service_date} onChange={e => setNewItem({ ...newItem, service_date: e.target.value })} className="col-span-1 sm:col-span-3 h-9 px-2 border rounded-md bg-background text-sm" />
+          <input type="number" step="0.01" placeholder="Qty" value={newItem.quantity} onChange={e => setNewItem({ ...newItem, quantity: Number(e.target.value) })} className="col-span-1 sm:col-span-2 h-9 px-2 border rounded-md bg-background text-sm text-right" />
+          <input type="number" step="0.01" placeholder="Rate" value={newItem.unit_price} onChange={e => setNewItem({ ...newItem, unit_price: Number(e.target.value) })} className="col-span-1 sm:col-span-2 h-9 px-2 border rounded-md bg-background text-sm text-right" />
+          <select value={newItem.tax_code} onChange={e => setNewItem({ ...newItem, tax_code: e.target.value })} className="col-span-1 sm:col-span-2 h-9 px-2 border rounded-md bg-background text-sm">
             {TAX_CODES.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
-          <button type="submit" className="col-span-3 h-9 rounded-md bg-primary text-primary-foreground text-sm inline-flex items-center justify-center gap-1"><Plus className="h-4 w-4" /> Add</button>
+          <button type="submit" className="col-span-1 sm:col-span-3 h-9 rounded-md bg-primary text-primary-foreground text-sm inline-flex items-center justify-center gap-1"><Plus className="h-4 w-4" /> Add</button>
         </form>
         )}
 
@@ -293,16 +293,16 @@ function InvoiceDetail() {
       {/* Payments */}
       <div className="rounded-lg border bg-card p-4 print:hidden">
         <h3 className="text-sm font-semibold mb-3">Payments</h3>
-        <form onSubmit={addPayment} className="grid grid-cols-12 gap-2 mb-4">
-          <input type="number" step="0.01" placeholder="Amount" value={newPay.amount || ""} onChange={e => setNewPay({ ...newPay, amount: Number(e.target.value) })} className="col-span-2 h-9 px-2 border rounded-md bg-background text-sm" />
-          <input type="date" value={newPay.payment_date} onChange={e => setNewPay({ ...newPay, payment_date: e.target.value })} className="col-span-2 h-9 px-2 border rounded-md bg-background text-sm" />
-          <select value={newPay.method} onChange={e => setNewPay({ ...newPay, method: e.target.value })} className="col-span-2 h-9 px-2 border rounded-md bg-background text-sm">
+        <form onSubmit={addPayment} className="grid grid-cols-2 sm:grid-cols-12 gap-2 mb-4">
+          <input type="number" step="0.01" placeholder="Amount" value={newPay.amount || ""} onChange={e => setNewPay({ ...newPay, amount: Number(e.target.value) })} className="col-span-1 sm:col-span-2 h-9 px-2 border rounded-md bg-background text-sm" />
+          <input type="date" value={newPay.payment_date} onChange={e => setNewPay({ ...newPay, payment_date: e.target.value })} className="col-span-1 sm:col-span-2 h-9 px-2 border rounded-md bg-background text-sm" />
+          <select value={newPay.method} onChange={e => setNewPay({ ...newPay, method: e.target.value })} className="col-span-1 sm:col-span-2 h-9 px-2 border rounded-md bg-background text-sm">
             {METHODS.map(m => <option key={m} value={m}>{m}</option>)}
           </select>
-          <input placeholder="Reference (e.g. MPESA code)" value={newPay.reference} onChange={e => setNewPay({ ...newPay, reference: e.target.value })} className="col-span-3 h-9 px-2 border rounded-md bg-background text-sm" />
-          <input placeholder="Notes" value={newPay.notes} onChange={e => setNewPay({ ...newPay, notes: e.target.value })} className="col-span-2 h-9 px-2 border rounded-md bg-background text-sm" />
-          <button type="submit" disabled={uploading} className="col-span-1 h-9 rounded-md bg-primary text-primary-foreground text-sm inline-flex items-center justify-center disabled:opacity-50"><Save className="h-4 w-4" /></button>
-          <div className="col-span-12 flex items-center gap-2">
+          <input placeholder="Reference (e.g. MPESA code)" value={newPay.reference} onChange={e => setNewPay({ ...newPay, reference: e.target.value })} className="col-span-1 sm:col-span-3 h-9 px-2 border rounded-md bg-background text-sm" />
+          <input placeholder="Notes" value={newPay.notes} onChange={e => setNewPay({ ...newPay, notes: e.target.value })} className="col-span-1 sm:col-span-2 h-9 px-2 border rounded-md bg-background text-sm" />
+          <button type="submit" disabled={uploading} className="col-span-1 sm:col-span-1 h-9 rounded-md bg-primary text-primary-foreground text-sm inline-flex items-center justify-center disabled:opacity-50"><Save className="h-4 w-4" /></button>
+          <div className="col-span-2 sm:col-span-12 flex items-center gap-2">
             <label className="inline-flex items-center gap-2 text-xs cursor-pointer px-2 h-8 border rounded-md hover:bg-muted">
               <Paperclip className="h-3.5 w-3.5" /> {receiptFile ? receiptFile.name : "Attach receipt (image/PDF)"}
               <input type="file" accept="image/*,application/pdf" className="hidden" onChange={e => setReceiptFile(e.target.files?.[0] ?? null)} />
@@ -351,7 +351,7 @@ function InvoiceDetail() {
             <h3 className="text-sm font-semibold">Client Statement — {inv.clients?.company_name}</h3>
             <div className="text-xs text-muted-foreground">All invoices for this client</div>
           </div>
-          <div className="grid grid-cols-3 gap-3 mb-3 text-sm">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3 text-sm">
             <div className="rounded-md border p-3"><div className="text-xs text-muted-foreground">Total Billed</div><div className="font-bold">{money(statement.billed)}</div></div>
             <div className="rounded-md border p-3"><div className="text-xs text-muted-foreground">Total Paid</div><div className="font-bold text-emerald-700">{money(statement.paid)}</div></div>
             <div className="rounded-md border p-3"><div className="text-xs text-muted-foreground">Outstanding Balance</div><div className={`font-bold ${statement.balance > 0 ? "text-amber-700" : "text-emerald-700"}`}>{money(statement.balance)}</div></div>

@@ -117,6 +117,30 @@ function CalendarPage() {
     if (error) toast.error(error.message); else { setDialog(null); load(); }
   }
 
+  // The open day: inside its cell on wider screens, full width below the grid on phones.
+  const dayPanel = (d: Date, evs: any[], mobile = false) => (
+      <div className={`${mobile ? "p-3 text-sm" : "border-t bg-muted/20 p-2 text-xs"} space-y-1.5`}>
+        <div className="flex items-center justify-between mb-1">
+          <span className="font-semibold">{d.toLocaleDateString("en", { weekday: "short", month: "short", day: "numeric" })}</span>
+          <button onClick={() => openNew(d)} className={`inline-flex items-center gap-1 rounded border bg-card hover:bg-muted ${mobile ? "px-3 py-1.5 text-xs" : "px-2 py-1 text-[10px]"}`}><Plus className="h-3 w-3" /> Add</button>
+        </div>
+        {evs.length === 0 ? (
+          <div className="text-[10px] text-muted-foreground py-1">Nothing booked or highlighted for this date.</div>
+        ) : evs.map((e, idx) => (
+          <button
+            key={idx}
+            onClick={() => { if (e.kind === "custom") openEdit(e.raw); }}
+            className={`w-full text-left p-2 rounded border ${typeCls(e.type)} hover:opacity-80`}
+          >
+            <div className="font-medium truncate">{e.kind === "custom" && e.sharedWithYou ? (e.isTeam ? "👥 " : "👤 ") : ""}{e.title}</div>
+            <div className="text-[10px] opacity-80 mt-0.5">
+              {e.kind === "custom" ? [e.raw.event_time, e.raw.client_id ? "Client-linked" : null, e.raw.visibility === "team" ? "Team" : null].filter(Boolean).join(" · ") || e.type : "Tax deadline"}
+            </div>
+          </button>
+        ))}
+      </div>
+  );
+
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center flex-wrap gap-3">
@@ -169,7 +193,7 @@ function CalendarPage() {
               <div key={i} className={`border-r border-b text-xs ${!isCurr ? "bg-muted/30 text-muted-foreground" : ""}`}>
                 <div
                   onClick={() => setExpandedDate(isExpanded ? null : dateKey)}
-                  className="min-h-24 p-1.5 cursor-pointer hover:bg-muted/40"
+                  className="min-h-14 sm:min-h-24 p-1 sm:p-1.5 cursor-pointer hover:bg-muted/40"
                   title="Click to expand this date"
                 >
                   <div className="flex items-center justify-between gap-1">
@@ -179,7 +203,7 @@ function CalendarPage() {
                       {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                     </div>
                   </div>
-                  <div className="space-y-0.5 mt-1">
+                  <div className="space-y-0.5 mt-1 hidden sm:block">
                     {evs.slice(0, 3).map((e, idx) => (
                       <div
                         key={idx}
@@ -194,33 +218,18 @@ function CalendarPage() {
                     {evs.length === 0 && <div className="text-[10px] text-muted-foreground mt-2">No items</div>}
                   </div>
                 </div>
-                {isExpanded && (
-                  <div className="border-t bg-muted/20 p-2 space-y-1.5">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="font-semibold">{d.toLocaleDateString("en", { weekday: "short", month: "short", day: "numeric" })}</span>
-                      <button onClick={() => openNew(d)} className="inline-flex items-center gap-1 px-2 py-1 rounded border bg-card hover:bg-muted text-[10px]"><Plus className="h-3 w-3" /> Add</button>
-                    </div>
-                    {evs.length === 0 ? (
-                      <div className="text-[10px] text-muted-foreground py-1">Nothing booked or highlighted for this date.</div>
-                    ) : evs.map((e, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => { if (e.kind === "custom") openEdit(e.raw); }}
-                        className={`w-full text-left p-2 rounded border ${typeCls(e.type)} hover:opacity-80`}
-                      >
-                        <div className="font-medium truncate">{e.kind === "custom" && e.sharedWithYou ? (e.isTeam ? "👥 " : "👤 ") : ""}{e.title}</div>
-                        <div className="text-[10px] opacity-80 mt-0.5">
-                          {e.kind === "custom" ? [e.raw.event_time, e.raw.client_id ? "Client-linked" : null, e.raw.visibility === "team" ? "Team" : null].filter(Boolean).join(" · ") || e.type : "Tax deadline"}
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                )}
+                {isExpanded && <div className="hidden sm:block">{dayPanel(d, evs)}</div>}
               </div>
             );
           })}
         </div>
       </div>
+
+      {/* Phones: the tapped day opens here, full width, instead of inside a narrow cell. */}
+      {expandedDate && (() => {
+        const d = days.find(x => x.toISOString().slice(0, 10) === expandedDate);
+        return d ? <div className="sm:hidden bg-card border rounded-lg overflow-hidden">{dayPanel(d, eventsOn(d), true)}</div> : null;
+      })()}
 
       {dialog && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setDialog(null)}>

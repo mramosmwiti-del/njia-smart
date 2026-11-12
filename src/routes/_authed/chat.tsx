@@ -5,7 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
 import {
-  Hash, Users2, Plus, Send, Paperclip, X, Loader2, MessageSquare, Trash2, Ban,
+  Hash, Users2, Plus, Send, Paperclip, X, Loader2, MessageSquare, Trash2, Ban, ArrowLeft,
 } from "lucide-react";
 
 export const Route = createFileRoute("/_authed/chat")({
@@ -47,6 +47,8 @@ function ChatPage() {
   const [staff, setStaff] = useState<Profile[]>([]);
   const [profileById, setProfileById] = useState<Record<string, Profile>>({});
   const [activeId, setActiveId] = useState<string | null>(search.channel ?? null);
+  // Phones show the chat list OR the conversation (like WhatsApp); wider screens show both.
+  const [mobileChat, setMobileChat] = useState<boolean>(!!search.channel);
   const [messages, setMessages] = useState<Message[]>([]);
   const [body, setBody] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -211,6 +213,7 @@ function ChatPage() {
     setChannels(remaining);
     setMessages([]);
     setActiveId(remaining.find((c) => c.kind === "team")?.id ?? remaining[0]?.id ?? null);
+    setMobileChat(false);
     toast.success("Chat deleted");
   }
 
@@ -277,6 +280,7 @@ function ChatPage() {
     if (error) { toast.error(error.message); return; }
     await loadChannels();
     setActiveId(channelId as string);
+    setMobileChat(true);
     setPickerOpen(false);
   }
 
@@ -311,30 +315,33 @@ function ChatPage() {
   return (
     <div className="flex h-[calc(100dvh-5.5rem)] md:h-[calc(100dvh-6.5rem)] -m-4 md:-m-6 overflow-hidden">
       {/* Sidebar */}
-      <aside className="w-64 shrink-0 border-r bg-card flex flex-col">
+      <aside className={`${mobileChat ? "hidden md:flex" : "flex"} w-full md:w-64 shrink-0 border-r bg-card flex-col`}>
         <div className="p-4 border-b flex items-center gap-2 font-semibold text-sm">
           <MessageSquare className="h-4 w-4" /> Chat
         </div>
         <div className="flex-1 overflow-y-auto py-2">
           {teamChannel && (
-            <SidebarItem active={activeId === teamChannel.id} onClick={() => setActiveId(teamChannel.id)} icon={<Hash className="h-4 w-4" />} label="Team Chat" unread={unreadChannelIds.has(teamChannel.id)} />
+            <SidebarItem active={activeId === teamChannel.id} onClick={() => { setActiveId(teamChannel.id); setMobileChat(true); }} icon={<Hash className="h-4 w-4" />} label="Team Chat" unread={unreadChannelIds.has(teamChannel.id)} />
           )}
 
           <SidebarSection label="Direct messages" onAdd={() => setPickerOpen(true)} unread={dmChannels.some((c) => unreadChannelIds.has(c.id))} />
           {dmChannels.map((c) => (
-            <SidebarItem key={c.id} active={activeId === c.id} onClick={() => setActiveId(c.id)} icon={<Users2 className="h-4 w-4" />} label={channelLabel(c)} unread={unreadChannelIds.has(c.id)} />
+            <SidebarItem key={c.id} active={activeId === c.id} onClick={() => { setActiveId(c.id); setMobileChat(true); }} icon={<Users2 className="h-4 w-4" />} label={channelLabel(c)} unread={unreadChannelIds.has(c.id)} />
           ))}
           {dmChannels.length === 0 && <div className="px-4 py-1 text-xs text-muted-foreground">No conversations yet</div>}
         </div>
       </aside>
 
       {/* Main pane */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className={`${mobileChat ? "flex" : "hidden md:flex"} flex-1 flex-col min-w-0`}>
         {active ? (
           <>
-            <div className="h-14 border-b flex items-center gap-2 px-4 font-medium">
-              {channelIcon(active)} {channelLabel(active)}
-              <div className="ml-auto flex items-center gap-4">
+            <div className="h-14 border-b flex items-center gap-2 px-2 md:px-4 font-medium">
+              <button onClick={() => setMobileChat(false)} aria-label="Back to chats" className="md:hidden p-2 rounded-md hover:bg-muted">
+                <ArrowLeft className="h-5 w-5" />
+              </button>
+              {channelIcon(active)} <span className="truncate min-w-0">{channelLabel(active)}</span>
+              <div className="ml-auto flex items-center gap-3 md:gap-4 shrink-0">
                 {active.kind === "team" && (
                   <button onClick={clearChatForMe} className="text-xs font-normal text-muted-foreground hover:text-destructive inline-flex items-center gap-1">
                     <Trash2 className="h-3.5 w-3.5" /> Clear chat
