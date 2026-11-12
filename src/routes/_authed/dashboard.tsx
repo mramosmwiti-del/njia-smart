@@ -105,7 +105,7 @@ function Dashboard() {
       const [c, pendingTax, overdueTasks, completedTasks, staff, taxOpen, allTasks] = await Promise.all([
         supabase.from("clients").select("id", { count: "exact", head: true }),
         supabase.from("tax_returns").select("id", { count: "exact", head: true }).in("status", ["pending", "in_progress"]),
-        supabase.from("tasks").select("id", { count: "exact", head: true }).eq("is_overdue", true),
+        supabase.from("tasks").select("id", { count: "exact", head: true }).eq("is_overdue", true).neq("status", "waiting_on_client"),
         supabase.from("tasks").select("id", { count: "exact", head: true }).eq("status", "done"),
         supabase.from("profiles").select("id, full_name"),
         supabase.from("tax_returns").select("return_type, due_date, status, assigned_to").neq("status", "filed"),
@@ -142,7 +142,7 @@ function Dashboard() {
         if (!t.assigned_to || t.status === "done") return;
         wl[t.assigned_to] ??= { tasks: 0, filings: 0, overdue: 0 };
         wl[t.assigned_to].tasks++;
-        if (t.is_overdue) wl[t.assigned_to].overdue++;
+        if (t.is_overdue && t.status !== "waiting_on_client") wl[t.assigned_to].overdue++;
       });
       (taxOpen.data ?? []).forEach((r: any) => {
         if (!r.assigned_to) return;

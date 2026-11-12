@@ -11,7 +11,8 @@ import { useLiveRefresh } from "@/hooks/use-live-refresh";
 import { TaskWeeklyPlan, type PlanTask } from "@/components/task-weekly-plan";
 import { TaskWorkspace } from "@/components/task-workspace/task-workspace";
 import { ProgressBar } from "@/components/task-workspace/progress-bar";
-import { displayProgress } from "@/components/task-workspace/types";
+import { displayProgress, waitingDays, chaseDue } from "@/components/task-workspace/types";
+import { WaitingOnClientDialog } from "@/components/task-workspace/waiting-on-client-dialog";
 import { NO_WEEK, WEEK_BUSY, mondayOf, weekLabel, weekOf, loadLevel, LEVEL_CLS, LEVEL_LABEL } from "@/lib/task-weeks";
 
 export const Route = createFileRoute("/_authed/tasks")({
@@ -36,7 +37,8 @@ function TasksPage() {
   const [form, setForm] = useState<any>(EMPTY);
   const [detailId, setDetailId] = useState<string|null>(null);
   // Which of my tasks to show: all, assigned to me, tasks where I am a helper, tasks I supervise, tasks waiting for guidance.
-  const [view, setView] = useState<"all" | "mine" | "helping" | "supervising" | "guidance">("all");
+  const [view, setView] = useState<"all" | "mine" | "helping" | "supervising" | "guidance" | "waiting">("all");
+  const [waitingFor, setWaitingFor] = useState<{ id: string; title: string } | null>(null);
   const [helpingIds, setHelpingIds] = useState<Set<string>>(new Set());
   const [subCounts, setSubCounts] = useState<Map<string, { done: number; total: number }>>(new Map());
   // Director/Admin only: every open task, for the weekly plan and the workload hints.
@@ -100,7 +102,7 @@ function TasksPage() {
 
   function openNew() { setForm(EMPTY); setOpen(true); }
   function openEdit(r: any) {
-    setForm({ id: r.id, title:r.title, description:r.description||"", client_id:r.client_id||"", assigned_to:r.assigned_to||"", supervisor_id:r.supervisor_id||"", priority:r.priority, due_date:r.due_date||"", week_start:r.week_start||"", status:r.status });
+    setForm({ id: r.id, title:r.title, description:r.description||"", client_id:r.client_id||"", assigned_to:r.assigned_to||"", supervisor_id:r.supervisor_id||"", priority:r.priority, due_date:r.due_date||"", week_start:r.week_start||"", status:r.status, waiting_reason:r.waiting_reason||"", follow_up_on:r.follow_up_on||"" });
     setOpen(true);
   }
 
@@ -114,6 +116,11 @@ function TasksPage() {
       priority: form.priority, due_date: form.due_date || null, status: form.status,
       week_start: mondayOf(form.week_start) ?? null,
     };
+    if (form.status === "waiting_on_client") {
+      if (!String(form.waiting_reason ?? "").trim()) return toast.error("Say what you are waiting for from the client.");
+      payload.waiting_reason = String(form.waiting_reason).trim();
+      payload.follow_up_on = form.follow_up_on || null;
+    }
     if (form.id) {
       const { error } = await supabase.from("tasks").update(payload).eq("id", form.id);
       if (error) return toast.error(error.message);
@@ -156,8 +163,26 @@ function TasksPage() {
   }
 
   async function setStatus(id: string, status: string) {
+    // "Waiting on client" asks what we are waiting for and when to chase first.
+    if (status === "waiting_on_client") {
+      setWaitingFor({ id, title: rows.find(r => r.id === id)?.title ?? "" });
+      return;
+    }
     const { error } = await supabase.from("tasks").update({ status: status as any }).eq("id", id);
     if (error) toast.error(error.message); else load();
+  }
+
+  async function confirmWaiting(d: { reason: string; followUpOn: string }) {
+    if (!waitingFor) return;
+    const task = rows.find(r => r.id === waitingFor.id);
+    const { error } = await supabase.from("tasks")
+      .update({ status: "waiting_on_client", waiting_reason: d.reason, follow_up_on: d.followUpOn || null } as any)
+      .eq("id", waitingFor.id);
+    if (error) { toast.error(error.message); return; }
+    const tell = [...new Set([task?.supervisor_id, task?.created_by, task?.assigned_to].filter(Boolean) as string[])].filter(id => id !== user?.id);
+    tell.forEach(id => notifyUser({ user_id: id, type: "task_waiting", title: "Task waiting on client", body: `${waitingFor.title} — ${d.reason}`, link: `/tasks?task=${waitingFor.id}` }));
+    setWaitingFor(null);
+    load();
   }
 
   const iSupervise = (r: any) => r.supervisor_id === user?.id || (r.created_by === user?.id && r.assigned_to !== user?.id);
@@ -169,12 +194,13 @@ function TasksPage() {
     helping: rows.filter(iHelp).length,
     supervising: rows.filter(iSupervise).length,
     guidance: rows.filter(needsMyGuidance).length,
+    waiting: rows.filter(r => r.status === "waiting_on_client").length,
   };
   const visible = rows.filter(r =>
     (view === "all" || (view === "mine" && r.assigned_to === user?.id) || (view === "helping" && iHelp(r)) ||
-      (view === "supervising" && iSupervise(r)) || (view === "guidance" && needsMyGuidance(r))) &&
+      (view === "supervising" && iSupervise(r)) || (view === "guidance" && needsMyGuidance(r)) || (view === "waiting" && r.status === "waiting_on_client")) &&
     (!statusFilter || r.status === statusFilter) &&
-    (!overdueFilter || (r.status !== "done" && r.is_overdue === true))
+    (!overdueFilter || (r.status !== "done" && r.status !== "waiting_on_client" && r.is_overdue === true))
   );
 
   return (
@@ -209,7 +235,7 @@ function TasksPage() {
 
       {(!isAdmin || tab === "list") && (
         <div className="flex flex-wrap gap-1.5">
-          {([["all", "All"], ["mine", "Assigned to me"], ["helping", "Helping"], ["supervising", "Supervising"], ["guidance", "Needs guidance"]] as const).map(([k, label]) => (
+          {([["all", "All"], ["mine", "Assigned to me"], ["helping", "Helping"], ["supervising", "Supervising"], ["guidance", "Needs guidance"], ["waiting", "Waiting on client"]] as const).map(([k, label]) => (
             <button
               key={k}
               onClick={() => setView(k)}
@@ -267,11 +293,17 @@ function TasksPage() {
                     </td>
                     <td className="text-xs whitespace-nowrap">{weekOf(t) === NO_WEEK ? "—" : weekLabel(weekOf(t))}</td>
                     <td><span className={`text-xs px-2 py-0.5 rounded capitalize ${isUrgent ? STATUS_COLORS.urgent : STATUS_COLORS[t.priority]}`}>{isUrgent ? "urgent" : t.priority}</span></td>
-                    <td className="text-xs">{formatDate(t.due_date)}{t.is_overdue && <div className="text-destructive">overdue</div>}</td>
+                    <td className="text-xs">{formatDate(t.due_date)}{t.is_overdue && t.status !== "waiting_on_client" && <div className="text-destructive">overdue</div>}</td>
                     <td>
                       <select value={t.status} onChange={e=>setStatus(t.id, e.target.value)} className={`h-7 px-2 rounded text-xs border bg-background capitalize ${STATUS_COLORS[t.status]}`}>
-                        {["todo","in_progress","blocked","done"].map(s=><option key={s} value={s}>{s.replace(/_/g," ")}</option>)}
+                        {["todo","in_progress","waiting_on_client","blocked","done"].map(s=><option key={s} value={s}>{s.replace(/_/g," ")}</option>)}
                       </select>
+                      {t.status === "waiting_on_client" && (
+                        <div className="text-[10px] mt-0.5 max-w-[11rem] whitespace-normal text-amber-800 dark:text-amber-200">
+                          Waiting {waitingDays(t) ?? 0}d{t.waiting_reason ? ` · ${t.waiting_reason}` : ""}
+                          {chaseDue(t) && <span className="ml-1 font-semibold text-destructive">· chase now</span>}
+                        </div>
+                      )}
                       {t.status === "done" && t.completed_at ? (
                         <div className="text-[10px] text-muted-foreground mt-0.5 whitespace-nowrap">Done {formatDateTime(t.completed_at)}</div>
                       ) : (
@@ -302,7 +334,7 @@ function TasksPage() {
               <select value={form.client_id} onChange={e=>setForm({...form, client_id:e.target.value})} className="h-9 px-3 rounded-md border bg-background text-sm"><option value="">No client</option>{clients.map(c=><option key={c.id} value={c.id}>{c.company_name}</option>)}</select>
               <select value={form.assigned_to} onChange={e=>setForm({...form, assigned_to:e.target.value})} className="h-9 px-3 rounded-md border bg-background text-sm"><option value="">Unassigned</option>{staff.map(s=><option key={s.id} value={s.id}>{s.full_name}{loadHint(s.id, formWeek, form.id || undefined)}</option>)}</select>
               <select value={form.priority} onChange={e=>setForm({...form, priority:e.target.value})} className="h-9 px-3 rounded-md border bg-background text-sm">{["low","normal","high","urgent"].map(p=><option key={p}>{p}</option>)}</select>
-              <select value={form.status} onChange={e=>setForm({...form, status:e.target.value})} className="h-9 px-3 rounded-md border bg-background text-sm capitalize">{["todo","in_progress","blocked","done"].map(s=><option key={s} value={s}>{s.replace(/_/g," ")}</option>)}</select>
+              <select value={form.status} onChange={e=>setForm({...form, status:e.target.value})} className="h-9 px-3 rounded-md border bg-background text-sm capitalize">{["todo","in_progress","waiting_on_client","blocked","done"].map(s=><option key={s} value={s}>{s.replace(/_/g," ")}</option>)}</select>
               <label className="text-xs text-muted-foreground">Due date
                 <input type="date" value={form.due_date} onChange={e=>setForm({...form, due_date:e.target.value})} className="mt-1 w-full h-9 px-3 rounded-md border bg-background text-sm text-foreground" />
               </label>
@@ -316,6 +348,16 @@ function TasksPage() {
                 {staff.map((p: any) => <option key={p.id} value={p.id}>{p.full_name}</option>)}
               </select>
             </label>
+            {form.status === "waiting_on_client" && (
+              <div className="grid grid-cols-2 gap-2 rounded-md bg-amber-50 dark:bg-amber-900/20 p-2">
+                <label className="col-span-2 text-xs text-muted-foreground">Waiting for *
+                  <input value={form.waiting_reason ?? ""} onChange={e=>setForm({...form, waiting_reason:e.target.value})} placeholder="e.g. Bank statements for June" className="mt-1 w-full h-9 px-3 rounded-md border bg-background text-sm text-foreground" />
+                </label>
+                <label className="col-span-2 text-xs text-muted-foreground">Chase the client on
+                  <input type="date" value={form.follow_up_on ?? ""} onChange={e=>setForm({...form, follow_up_on:e.target.value})} className="mt-1 w-full h-9 px-3 rounded-md border bg-background text-sm text-foreground" />
+                </label>
+              </div>
+            )}
             {formWeek !== NO_WEEK && (
               <div className="text-xs text-muted-foreground">Week: <span className="font-medium text-foreground">{weekLabel(formWeek)}</span>{!form.week_start && " (from the due date)"}</div>
             )}
@@ -347,6 +389,7 @@ function TasksPage() {
       )}
 
       {detailId && <TaskWorkspace id={detailId} onClose={closeWorkspace} />}
+      <WaitingOnClientDialog taskTitle={waitingFor ? waitingFor.title : null} onCancel={() => setWaitingFor(null)} onConfirm={confirmWaiting} />
     </div>
   );
 }
