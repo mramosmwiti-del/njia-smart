@@ -121,19 +121,32 @@ function TasksPage() {
       payload.waiting_reason = String(form.waiting_reason).trim();
       payload.follow_up_on = form.follow_up_on || null;
     }
+    let taskId: string = form.id;
+    const previousAssignee = form.id ? rows.find(r => r.id === form.id)?.assigned_to ?? null : null;
     if (form.id) {
       const { error } = await supabase.from("tasks").update(payload).eq("id", form.id);
       if (error) return toast.error(error.message);
       toast.success("Task updated");
     } else {
       payload.created_by = user?.id;
-      const { error } = await supabase.from("tasks").insert(payload);
+      const { data: created, error } = await supabase.from("tasks").insert(payload).select("id").single();
       if (error) return toast.error(error.message);
+      taskId = (created as any)?.id;
       toast.success("Task created");
     }
     if (form.assigned_to && form.assigned_to !== user?.id) {
       const wk = mondayOf(form.week_start) ?? mondayOf(form.due_date);
-      await notifyUser({ user_id: form.assigned_to, type:"task_assigned", title: form.id ? "Task updated" : "New task assigned", body: `${form.title}${wk ? ` — week of ${weekLabel(wk)}` : ""}` });
+      const me = staff.find((s: any) => s.id === user?.id)?.full_name;
+      // A new task, or a task handed to someone new, pops up for the assignee with the full
+      // instructions. Editing a task they already hold only adds a bell notification.
+      const newlyAssigned = !form.id || previousAssignee !== form.assigned_to;
+      await notifyUser({
+        user_id: form.assigned_to,
+        type: newlyAssigned ? "task_assigned" : "task_updated",
+        title: newlyAssigned ? "New task assigned" : "Task updated",
+        body: `${me ? `From ${me}: ` : ""}${form.title}${wk ? ` — week of ${weekLabel(wk)}` : ""}`,
+        link: taskId ? `/tasks?task=${taskId}` : null,
+      });
     }
     setOpen(false); setForm(EMPTY); load();
   }
@@ -143,7 +156,8 @@ function TasksPage() {
     const { error } = await supabase.from("tasks").update({ assigned_to: newAssignee }).eq("id", id);
     if (error) { toast.error(error.message); return; }
     if (newAssignee && newAssignee !== user?.id) {
-      await notifyUser({ user_id: newAssignee, type:"task_transferred", title:"Task transferred to you", body: title });
+      const me = staff.find((s: any) => s.id === user?.id)?.full_name;
+      await notifyUser({ user_id: newAssignee, type:"task_assigned", title:"Task assigned to you", body: `${me ? `From ${me}: ` : ""}${title}`, link: `/tasks?task=${id}` });
     }
     toast.success("Reassigned"); load();
   }
