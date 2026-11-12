@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
+import { ChatTicks, ReceiptRow, receiptFor, overallReceipt, type MemberReceipt } from "@/components/chat-receipts";
 import {
   Hash, Users2, Plus, Send, Paperclip, X, Loader2, MessageSquare, Trash2, Ban, ArrowLeft,
 } from "lucide-react";
@@ -57,6 +58,9 @@ function ChatPage() {
   const [unreadChannelIds, setUnreadChannelIds] = useState<Set<string>>(new Set());
   const [dmOtherUserId, setDmOtherUserId] = useState<Record<string, string>>({});
   const [deleteTarget, setDeleteTarget] = useState<Message | null>(null);
+  // Read receipts: where each member has got to in the open chat.
+  const [memberReceipts, setMemberReceipts] = useState<MemberReceipt[]>([]);
+  const [infoTarget, setInfoTarget] = useState<Message | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const channelsRef = useRef<Channel[]>([]);
   channelsRef.current = channels;
@@ -183,6 +187,32 @@ function ChatPage() {
     setMessages(visible);
   }
 
+  // ---- read receipts (ticks) ----------------------------------------------
+  async function loadReceipts(channelId: string) {
+    const full = await supabase.from("chat_channel_members")
+      .select("user_id, last_read_at, last_delivered_at, created_at").eq("channel_id", channelId);
+    if (!full.error) {
+      setMemberReceipts(((full.data as any[]) ?? []).map((r) => ({ ...r, joined_at: r.created_at })));
+      return;
+    }
+    // Database update not applied yet: fall back to read times only.
+    const basic = await supabase.from("chat_channel_members")
+      .select("user_id, last_read_at, created_at").eq("channel_id", channelId);
+    setMemberReceipts(((basic.data as any[]) ?? []).map((r) => ({ ...r, last_delivered_at: null, joined_at: r.created_at })));
+  }
+
+  // "I have this chat open and have read it" (server time, so clocks can't fake it).
+  async function markReceiptsRead(channelId: string) {
+    if (!user || document.visibilityState !== "visible") return;
+    const { error } = await supabase.rpc("chat_mark_read" as any, { _channel_id: channelId } as any);
+    if (error) {
+      await supabase.from("chat_channel_members").upsert(
+        { channel_id: channelId, user_id: user.id, last_read_at: new Date().toISOString() },
+        { onConflict: "channel_id,user_id" },
+      );
+    }
+  }
+
   // The delete dialog (deleteTarget) is the confirmation for both options.
   async function deleteMessageForMe(id: string) {
     const { error } = await supabase.rpc("hide_chat_message_for_me", { _message_id: id });
@@ -232,23 +262,40 @@ function ChatPage() {
     const ch = supabase
       .channel(`chat-${activeId}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "chat_messages", filter: `channel_id=eq.${activeId}` },
-        (payload) => setMessages((prev) => [...prev, payload.new as Message]))
+        (payload) => {
+          const incoming = payload.new as Message;
+          setMessages((prev) => [...prev, incoming]);
+          // A message from someone else arrived while I'm looking at the chat: I've read it.
+          if (incoming.sender_id !== user?.id) { void markReceiptsRead(activeId); void markChannelRead(activeId); }
+        })
       // Someone deleted a message for everyone: show it as deleted straight away.
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "chat_messages", filter: `channel_id=eq.${activeId}` },
         (payload) => {
           const next = payload.new as Message;
           setMessages((prev) => prev.map((x) => (x.id === next.id ? { ...x, ...next } : x)));
         })
+      // Someone's delivered/read marker moved: update the ticks live.
+      .on("postgres_changes", { event: "*", schema: "public", table: "chat_channel_members", filter: `channel_id=eq.${activeId}` },
+        (payload) => {
+          const row = payload.new as any;
+          if (!row?.user_id) return;
+          setMemberReceipts((prev) => [
+            ...prev.filter((r) => r.user_id !== row.user_id),
+            { user_id: row.user_id, last_read_at: row.last_read_at ?? null, last_delivered_at: row.last_delivered_at ?? null, joined_at: row.created_at ?? null },
+          ]);
+        })
       .subscribe();
+    setMemberReceipts([]);
+    loadReceipts(activeId);
     // mark read
     if (user) {
-      supabase.from("chat_channel_members").upsert(
-        { channel_id: activeId, user_id: user.id, last_read_at: new Date().toISOString() },
-        { onConflict: "channel_id,user_id" },
-      );
+      void markReceiptsRead(activeId);
       markChannelRead(activeId);
     }
-    return () => { supabase.removeChannel(ch); };
+    // Coming back to the tab with this chat open counts as reading it.
+    const onVisible = () => { if (document.visibilityState === "visible") void markReceiptsRead(activeId); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { supabase.removeChannel(ch); document.removeEventListener("visibilitychange", onVisible); };
   }, [activeId, user?.id]);
 
   useEffect(() => {
@@ -256,6 +303,7 @@ function ChatPage() {
   }, [messages.length]);
 
   const active = useMemo(() => channels.find((c) => c.id === activeId) ?? null, [channels, activeId]);
+  const otherReceipts = useMemo(() => memberReceipts.filter((r) => r.user_id !== user?.id), [memberReceipts, user?.id]);
 
   function channelLabel(c: Channel) {
     if (c.kind === "team") return "Team Chat";
@@ -386,8 +434,11 @@ function ChatPage() {
                           )}
                         </>
                       )}
-                      <div className={`text-[10px] mt-1 ${mine ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
+                      <div className={`text-[10px] mt-1 flex items-center gap-1 ${mine ? "justify-end text-primary-foreground/70" : "text-muted-foreground"}`}>
                         {new Date(m.created_at).toLocaleTimeString("en-KE", { hour: "2-digit", minute: "2-digit" })}
+                        {mine && !m.deleted_at && (
+                          <ChatTicks state={overallReceipt(m.created_at, otherReceipts)} onClick={() => setInfoTarget(m)} />
+                        )}
                       </div>
                     </div>
                     {!mine && (
@@ -429,6 +480,22 @@ function ChatPage() {
           <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">Select a channel to start chatting</div>
         )}
       </div>
+
+      {/* Message info: who has received and read my message */}
+      {infoTarget && (
+        <Picker title="Message info" onClose={() => setInfoTarget(null)}>
+          <div className="px-3 py-2 text-xs text-muted-foreground border-b mb-1">
+            <div className="line-clamp-2 break-words">{infoTarget.body || infoTarget.attachment_name || "Attachment"}</div>
+            <div className="mt-0.5">Sent {new Date(infoTarget.created_at).toLocaleString("en-KE", { dateStyle: "medium", timeStyle: "short" })}</div>
+          </div>
+          {otherReceipts.length === 0 && <div className="px-3 py-2 text-sm text-muted-foreground">No one else is in this chat yet.</div>}
+          {[...otherReceipts]
+            .sort((a, b) => (profileById[a.user_id]?.full_name ?? "").localeCompare(profileById[b.user_id]?.full_name ?? ""))
+            .map((r) => (
+              <ReceiptRow key={r.user_id} name={profileById[r.user_id]?.full_name ?? "Unknown"} state={receiptFor(infoTarget.created_at, r)} />
+            ))}
+        </Picker>
+      )}
 
       {/* Delete message: for everyone (own messages only) or just for me */}
       {deleteTarget && (
