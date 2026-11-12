@@ -23,7 +23,20 @@ function Settings() {
   async function load() {
     if (!user) return;
     const { data } = await supabase.from("profiles").select("*").eq("id", user.id).maybeSingle();
-    setProfile(data);
+    if (data) {
+      setProfile(data);
+    } else {
+      // No profile row yet (should be created on signup — this is a safety
+      // net for an account that slipped past that). Without this, the page
+      // would be stuck on "Loading…" forever since there's nothing to show.
+      const { data: created, error } = await supabase
+        .from("profiles")
+        .upsert({ id: user.id, full_name: user.email ?? null }, { onConflict: "id" })
+        .select("*")
+        .maybeSingle();
+      if (error) { toast.error("Couldn't load your profile: " + error.message); return; }
+      setProfile(created);
+    }
     if (isAdmin) {
       const { data: a } = await supabase.from("activity_log").select("*").order("created_at", { ascending: false }).limit(20);
       setActivity(a ?? []);
