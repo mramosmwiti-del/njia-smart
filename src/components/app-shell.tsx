@@ -13,6 +13,7 @@ import { CommandPalette } from "./command-palette";
 import { PageTransition } from "./page-transition";
 import { NAV_MODULE_BY_PATH } from "@/lib/permissions";
 import { useChatUnreadCount } from "@/hooks/use-chat-unread-count";
+import { useChatDelivery } from "@/hooks/use-chat-delivery";
 import { useNotificationSound } from "@/hooks/use-notification-sound";
 import { SoundToggle } from "./sound-toggle";
 import { OfflineIndicator } from "./offline-indicator";
@@ -90,6 +91,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const expanded = pinned || open || hovered;
   const chatUnread = useChatUnreadCount();
+  // Marks incoming chat messages as delivered while the app is open (the second grey tick).
+  useChatDelivery();
   useNotificationSound();
 
   useEffect(() => {
