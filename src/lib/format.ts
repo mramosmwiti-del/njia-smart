@@ -45,6 +45,7 @@ export const STATUS_COLORS: Record<string, string> = {
   pending: "bg-muted text-muted-foreground",
   todo: "bg-muted text-muted-foreground",
   blocked: "bg-red-100 text-red-800",
+  waiting_on_client: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
   done: "bg-emerald-100 text-emerald-800",
   low: "bg-muted text-muted-foreground",
   normal: "bg-blue-100 text-blue-800",
