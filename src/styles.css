@@ -186,3 +186,67 @@
   }
 }
 
+/* =========================================================================
+   PHONES & TABLETS (Android Chrome and friends)
+   Global rules so every page behaves on touch screens without each page
+   having to remember. Plain (unlayered) CSS on purpose: it overrides the
+   Tailwind utilities it needs to.
+   ========================================================================= */
+
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+
+/* Pulling down inside the app must not trigger Chrome's pull-to-refresh and
+   throw away a half-typed form or chat message. */
+body { overscroll-behavior-y: contain; }
+
+/* Android Chrome counts the area behind the address bar in "100vh", which pushes
+   the bottom of full-height screens (sidebar Sign out, dialogs) out of view. Use
+   the dynamic viewport instead. */
+@supports (height: 100dvh) {
+  .h-screen { height: 100dvh; }
+  .min-h-screen { min-height: 100dvh; }
+  .h-\[90vh\] { height: 90dvh; }
+  .max-h-\[90vh\] { max-height: 90dvh; }
+  .max-h-\[92vh\] { max-height: 92dvh; }
+  .max-h-\[94vh\] { max-height: 94dvh; }
+  .max-h-\[70vh\] { max-height: 70dvh; }
+  .max-h-\[50vh\] { max-height: 50dvh; }
+}
+
+/* Controls that only appear on mouse hover (Delete, Stop, Reopen...) never
+   appear on a touch screen, so show them. */
+@media (hover: none) {
+  [class*="group-hover:opacity-100"],
+  [class*="hover:opacity-100"] { opacity: 1; }
+}
+
+/* A table wider than the screen scrolls sideways inside its card instead of
+   being clipped. */
+:has(> table) { overflow-x: auto; }
+@media print { :has(> table) { overflow: visible; } }
+
+/* Pop-up windows taller than the screen (long forms, keyboard open) scroll
+   instead of being cut off at the top and bottom. */
+[class~="fixed"][class~="inset-0"][class~="items-center"][class~="justify-center"] {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+@supports (align-items: safe center) {
+  [class~="fixed"][class~="inset-0"][class~="items-center"][class~="justify-center"] { align-items: safe center; }
+}
+
+/* Fingers are bigger than mouse pointers. */
+@media (pointer: coarse) {
+  /* Small icon-only buttons get a bigger tap area without changing the layout. */
+  :is(button, [role="button"]):is([class~="p-0.5"], [class~="p-1"], [class~="p-1.5"]):not([class~="absolute"]):not([class~="fixed"]):not([class~="sticky"]) {
+    position: relative;
+  }
+  :is(button, [role="button"]):is([class~="p-0.5"], [class~="p-1"], [class~="p-1.5"])::after {
+    content: "";
+    position: absolute;
+    inset: -8px;
+  }
+  /* Easier to tick, and fields tall enough to tap. */
+  input[type="checkbox"], input[type="radio"] { width: 1.15rem; height: 1.15rem; }
+  select, input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]) { min-height: 2.5rem; }
+}
