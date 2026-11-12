@@ -287,10 +287,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           >
             <Menu className="h-5 w-5" />
           </button>
-          <h1 className="text-sm font-semibold capitalize">
+          <h1 className="text-sm font-semibold capitalize min-w-0 truncate">
             {pathname.split("/").filter(Boolean)[0] || "Dashboard"}
           </h1>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-0.5 sm:gap-2 shrink-0">
             <CommandPalette pages={items.flatMap((i) => (isGroup(i) ? i.children : [i]))} />
             <ThemeToggle />
             <OfflineIndicator paths={items.flatMap((i) => (isGroup(i) ? i.children : [i]).map((l) => l.to))} />
