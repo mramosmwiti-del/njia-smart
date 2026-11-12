@@ -31,9 +31,61 @@ type Message = {
   attachment_name: string | null;
   created_at: string;
   deleted_at?: string | null;
+  mentioned_user_ids?: string[] | null;
 };
 
 type Profile = { id: string; full_name: string | null; avatar_url: string | null };
+type NamedMember = { id: string; name: string };
+
+/** Escape a name for use inside a RegExp alternation. */
+function escapeRe(s: string) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Find which of this channel's members are @-mentioned in a message body
+ * (matches the literal "@Full Name" text the composer inserts), longest
+ * name first so "@Jo" inside "@Joan" can't steal the match.
+ */
+function extractMentions(text: string, members: NamedMember[]): string[] {
+  if (!text || members.length === 0) return [];
+  const sorted = [...members].sort((a, b) => b.name.length - a.name.length);
+  const found = new Set<string>();
+  for (const m of sorted) {
+    const re = new RegExp(`@${escapeRe(m.name)}(?![a-zA-Z0-9])`);
+    if (re.test(text)) found.add(m.id);
+  }
+  return [...found];
+}
+
+/** Render a message body, highlighting "@Full Name" mentions of channel members. */
+function renderMessageBody(text: string, members: NamedMember[], myId?: string | null): React.ReactNode {
+  if (!text) return text;
+  if (members.length === 0) return text;
+  const sorted = [...members].sort((a, b) => b.name.length - a.name.length);
+  const pattern = sorted.map((m) => escapeRe(m.name)).join("|");
+  const re = new RegExp(`@(${pattern})(?![a-zA-Z0-9])`, "g");
+  const nodes: React.ReactNode[] = [];
+  let last = 0;
+  let match: RegExpExecArray | null;
+  let key = 0;
+  while ((match = re.exec(text))) {
+    if (match.index > last) nodes.push(text.slice(last, match.index));
+    const name = match[1];
+    const mine = sorted.find((m) => m.name === name)?.id === myId;
+    nodes.push(
+      <span
+        key={key++}
+        className={`rounded px-1 font-medium ${mine ? "bg-amber-300/80 text-amber-950 dark:bg-amber-400/30 dark:text-amber-100" : "bg-background/40 text-inherit underline decoration-dotted"}`}
+      >
+        @{name}
+      </span>,
+    );
+    last = match.index + match[0].length;
+  }
+  if (last < text.length) nodes.push(text.slice(last));
+  return nodes;
+}
 
 // Delete icon on each message. Phones and tablets have no hover, so it is
 // always visible there (with a bigger tap target); on a mouse it stays hidden
@@ -68,7 +120,13 @@ function ChatPage() {
   // Read receipts: where each member has got to in the open chat.
   const [memberReceipts, setMemberReceipts] = useState<MemberReceipt[]>([]);
   const [infoTarget, setInfoTarget] = useState<Message | null>(null);
+  // @mention autocomplete: query text typed after "@", where it started in
+  // the body, and which suggestion is keyboard-highlighted.
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionStart, setMentionStart] = useState<number | null>(null);
+  const [mentionHighlight, setMentionHighlight] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const channelsRef = useRef<Channel[]>([]);
   channelsRef.current = channels;
 
@@ -136,7 +194,7 @@ function ChatPage() {
   async function loadUnread() {
     if (!user) return;
     const { data } = await supabase.from("notifications").select("link")
-      .eq("user_id", user.id).eq("type", "chat_message").is("read_at", null);
+      .eq("user_id", user.id).in("type", ["chat_message", "chat_mention"]).is("read_at", null);
     const ids = new Set<string>();
     (data ?? []).forEach((n: any) => {
       const m = n.link?.match(/channel=([0-9a-f-]+)/i);
@@ -157,7 +215,7 @@ function ChatPage() {
   async function markChannelRead(channelId: string) {
     if (!user) return;
     await supabase.from("notifications").update({ read_at: new Date().toISOString() })
-      .eq("user_id", user.id).eq("type", "chat_message").is("read_at", null)
+      .eq("user_id", user.id).in("type", ["chat_message", "chat_mention"]).is("read_at", null)
       .ilike("link", `%channel=${channelId}%`);
     setUnreadChannelIds((prev) => {
       if (!prev.has(channelId)) return prev;
@@ -312,6 +370,57 @@ function ChatPage() {
   const active = useMemo(() => channels.find((c) => c.id === activeId) ?? null, [channels, activeId]);
   const otherReceipts = useMemo(() => memberReceipts.filter((r) => r.user_id !== user?.id), [memberReceipts, user?.id]);
 
+  // Everyone in the open chat, by name — used to recognize/highlight
+  // "@Full Name" in message bodies and to resolve who got @-mentioned.
+  const channelMembers: NamedMember[] = useMemo(
+    () => memberReceipts
+      .map((r) => ({ id: r.user_id, name: profileById[r.user_id]?.full_name ?? null }))
+      .filter((m): m is NamedMember => !!m.name),
+    [memberReceipts, profileById],
+  );
+  // Candidates offered while typing "@…" — everyone else in the chat.
+  const mentionCandidates: NamedMember[] = useMemo(() => {
+    if (mentionQuery === null) return [];
+    const q = mentionQuery.toLowerCase();
+    return channelMembers.filter((m) => m.id !== user?.id && m.name.toLowerCase().includes(q)).slice(0, 6);
+  }, [mentionQuery, channelMembers, user?.id]);
+
+  useEffect(() => { setMentionHighlight(0); }, [mentionQuery]);
+  // Switching chats closes any open mention dropdown from the previous one.
+  useEffect(() => { setMentionQuery(null); setMentionStart(null); }, [activeId]);
+
+  function handleBodyChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const val = e.target.value;
+    setBody(val);
+    const caret = e.target.selectionStart ?? val.length;
+    const upToCaret = val.slice(0, caret);
+    const m = upToCaret.match(/(?:^|\s)@([^\s@]{0,30})$/);
+    if (m) {
+      setMentionQuery(m[1]);
+      setMentionStart(caret - m[1].length - 1);
+    } else {
+      setMentionQuery(null);
+      setMentionStart(null);
+    }
+  }
+
+  function pickMention(member: NamedMember) {
+    if (mentionStart == null) return;
+    const queryLen = mentionQuery?.length ?? 0;
+    const before = body.slice(0, mentionStart);
+    const after = body.slice(mentionStart + 1 + queryLen);
+    const insertion = `@${member.name} `;
+    const next = before + insertion + after;
+    setBody(next);
+    setMentionQuery(null);
+    setMentionStart(null);
+    requestAnimationFrame(() => {
+      const pos = before.length + insertion.length;
+      inputRef.current?.focus();
+      inputRef.current?.setSelectionRange(pos, pos);
+    });
+  }
+
   function channelLabel(c: Channel) {
     if (c.kind === "team") return "Team Chat";
     if (c.kind === "dm") {
@@ -352,12 +461,16 @@ function ChatPage() {
         attachment_path = path;
         attachment_name = file.name;
       }
+      const trimmed = body.trim();
+      const mentioned_user_ids = extractMentions(trimmed, channelMembers);
       const { error } = await supabase.from("chat_messages").insert({
         channel_id: activeId, sender_id: user!.id,
-        body: body.trim() || null, attachment_path, attachment_name,
+        body: trimmed || null, attachment_path, attachment_name,
+        mentioned_user_ids,
       });
       if (error) { toast.error(error.message); return; }
       setBody(""); setFile(null);
+      setMentionQuery(null); setMentionStart(null);
     } finally {
       setSending(false);
     }
@@ -433,7 +546,7 @@ function ChatPage() {
                         </div>
                       ) : (
                         <>
-                          {m.body && <div className="whitespace-pre-wrap break-words">{m.body}</div>}
+                          {m.body && <div className="whitespace-pre-wrap break-words">{renderMessageBody(m.body, channelMembers, user?.id)}</div>}
                           {m.attachment_path && (
                             <button onClick={() => downloadAttachment(m.attachment_path!)} className="mt-1 flex items-center gap-1 text-xs underline underline-offset-2">
                               <Paperclip className="h-3 w-3" /> {m.attachment_name ?? "Attachment"}
@@ -465,16 +578,41 @@ function ChatPage() {
                   <button onClick={() => setFile(null)}><X className="h-3 w-3" /></button>
                 </div>
               )}
-              <div className="flex items-center gap-2">
+              <div className="relative flex items-center gap-2">
+                {mentionQuery !== null && mentionCandidates.length > 0 && (
+                  <div className="absolute bottom-full left-10 mb-1 w-56 max-h-48 overflow-y-auto rounded-md border bg-card shadow-lg z-10">
+                    {mentionCandidates.map((m, i) => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onMouseDown={(e) => { e.preventDefault(); pickMention(m); }}
+                        onMouseEnter={() => setMentionHighlight(i)}
+                        className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-left text-sm ${i === mentionHighlight ? "bg-primary/10 text-primary" : "hover:bg-muted"}`}
+                      >
+                        <div className="h-5 w-5 shrink-0 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[9px] font-semibold">{initials(m.name)}</div>
+                        <span className="truncate">{m.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <label className="p-2 rounded-md hover:bg-muted cursor-pointer">
                   <Paperclip className="h-4 w-4" />
                   <input type="file" hidden onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
                 </label>
                 <input
+                  ref={inputRef}
                   value={body}
-                  onChange={(e) => setBody(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
-                  placeholder="Message…"
+                  onChange={handleBodyChange}
+                  onKeyDown={(e) => {
+                    if (mentionQuery !== null && mentionCandidates.length > 0) {
+                      if (e.key === "ArrowDown") { e.preventDefault(); setMentionHighlight((h) => (h + 1) % mentionCandidates.length); return; }
+                      if (e.key === "ArrowUp") { e.preventDefault(); setMentionHighlight((h) => (h - 1 + mentionCandidates.length) % mentionCandidates.length); return; }
+                      if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); pickMention(mentionCandidates[mentionHighlight] ?? mentionCandidates[0]); return; }
+                      if (e.key === "Escape") { setMentionQuery(null); setMentionStart(null); return; }
+                    }
+                    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+                  }}
+                  placeholder="Message… (@ to mention someone)"
                   className="flex-1 border rounded-md px-3 py-2 text-sm bg-background"
                 />
                 <button onClick={send} disabled={sending || (!body.trim() && !file)} className="p-2 rounded-md bg-primary text-primary-foreground disabled:opacity-50">
