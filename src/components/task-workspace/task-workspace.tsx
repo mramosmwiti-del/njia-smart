@@ -8,7 +8,9 @@ import { SubtasksPanel } from "./subtasks-panel";
 import { UpdatesPanel } from "./updates-panel";
 import { OutputsPanel } from "./outputs-panel";
 import { TimelinePanel } from "./timeline-panel";
-import { TASK_STATUSES, displayProgress, type WorkspaceTab } from "./types";
+import { TASK_STATUSES, displayProgress, chaseDue, waitingDays, isWaitingOnClient, type WorkspaceTab } from "./types";
+import { WaitingOnClientDialog } from "./waiting-on-client-dialog";
+import { formatDate } from "@/lib/format";
 
 // The workspace for one task: progress, subtasks, notes and guidance, outputs and a timeline.
 export function TaskWorkspace({ id, onClose }: { id: string; onClose: () => void }) {
@@ -16,6 +18,7 @@ export function TaskWorkspace({ id, onClose }: { id: string; onClose: () => void
   const { task, loading, missingSetup, subtasks, outputs, updates, isLead, hasSubtasks, subtasksDone, nameOf, setStatus, setProgress } = ctx;
   const [tab, setTab] = useState<WorkspaceTab>("overview");
   const [draftPct, setDraftPct] = useState(0);
+  const [askWaiting, setAskWaiting] = useState(false);
 
   const pct = displayProgress(task);
   useEffect(() => { setDraftPct(pct); }, [pct]);
@@ -75,7 +78,7 @@ export function TaskWorkspace({ id, onClose }: { id: string; onClose: () => void
                 <select
                   value={task.status}
                   disabled={!canSetStatus}
-                  onChange={e => setStatus(e.target.value)}
+                  onChange={e => (e.target.value === "waiting_on_client" ? setAskWaiting(true) : setStatus(e.target.value))}
                   className={`h-8 px-2 rounded text-xs border bg-background capitalize ${STATUS_COLORS[task.status] ?? ""}`}
                 >
                   {TASK_STATUSES.map(s => <option key={s} value={s}>{s.replace(/_/g, " ")}</option>)}
@@ -83,6 +86,22 @@ export function TaskWorkspace({ id, onClose }: { id: string; onClose: () => void
               </div>
             </div>
           )}
+
+          {task && isWaitingOnClient(task) && (
+            <div className="rounded-md bg-amber-50 text-amber-900 dark:bg-amber-900/20 dark:text-amber-100 px-3 py-2 text-xs">
+              <span className="font-medium">Waiting on client</span>
+              {waitingDays(task) !== null && <> for {waitingDays(task)} day{waitingDays(task) === 1 ? "" : "s"}</>}
+              {task.waiting_reason && <> — {task.waiting_reason}</>}
+              {task.follow_up_on && (
+                <> · chase {formatDate(task.follow_up_on)}{chaseDue(task) && <span className="ml-1 font-semibold text-destructive">(chase now)</span>}</>
+              )}
+            </div>
+          )}
+          <WaitingOnClientDialog
+            taskTitle={askWaiting ? (task?.title ?? "") : null}
+            onCancel={() => setAskWaiting(false)}
+            onConfirm={async d => { await setStatus("waiting_on_client", d); setAskWaiting(false); }}
+          />
 
           <div className="flex gap-1 overflow-x-auto -mb-3">
             {tabs.map(t => (

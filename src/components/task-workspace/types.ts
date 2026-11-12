@@ -27,7 +27,22 @@ export const GUIDANCE_ACTIONS: { value: string; label: string }[] = [
 
 export const ACTION_LABEL: Record<string, string> = Object.fromEntries(GUIDANCE_ACTIONS.map(a => [a.value, a.label]));
 
-export const TASK_STATUSES = ["todo", "in_progress", "blocked", "done"] as const;
+export const TASK_STATUSES = ["todo", "in_progress", "waiting_on_client", "blocked", "done"] as const;
+
+/** Waiting on the client (not on us): not counted as overdue against the assignee. */
+export const isWaitingOnClient = (task: any) => task?.status === "waiting_on_client";
+
+/** Whole days the task has been waiting on the client. */
+export function waitingDays(task: any): number | null {
+  if (!isWaitingOnClient(task) || !task.waiting_since) return null;
+  return Math.max(0, Math.floor((Date.now() - new Date(task.waiting_since).getTime()) / 86400000));
+}
+
+/** The date to chase the client has arrived (or passed). */
+export function chaseDue(task: any): boolean {
+  if (!isWaitingOnClient(task) || !task.follow_up_on) return false;
+  return String(task.follow_up_on).slice(0, 10) <= new Date().toISOString().slice(0, 10);
+}
 
 /** Progress shown to people: a finished task is always 100%. */
 export function displayProgress(task: any): number {

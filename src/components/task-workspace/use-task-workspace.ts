@@ -59,10 +59,16 @@ export function useTaskWorkspace(taskId: string) {
     ids.forEach(id => notifyUser({ user_id: id, type, title, body: task.title, link: `/tasks?task=${taskId}` }));
   };
 
-  async function setStatus(status: string) {
-    const { error } = await supabase.from("tasks").update({ status: status as any }).eq("id", taskId);
+  async function setStatus(status: string, waiting?: { reason: string; followUpOn: string }) {
+    const patch: any = { status };
+    if (status === "waiting_on_client" && waiting) {
+      patch.waiting_reason = waiting.reason;
+      patch.follow_up_on = waiting.followUpOn || null;
+    }
+    const { error } = await supabase.from("tasks").update(patch).eq("id", taskId);
     if (error) return toast.error(error.message);
     if (status === "done") notifyTeam("task_completed", "Task completed");
+    if (status === "waiting_on_client") notifyTeam("task_waiting", "Task waiting on client");
     load();
   }
 

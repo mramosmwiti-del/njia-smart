@@ -10,7 +10,7 @@ export function TimelinePanel({ ctx }: { ctx: TaskWorkspaceCtx }) {
   if (!task) return null;
 
   const d = daysUntil(task.due_date);
-  const overdue = task.status !== "done" && d !== null && d < 0;
+  const overdue = task.status !== "done" && task.status !== "waiting_on_client" && d !== null && d < 0;
   const wk = weekOf(task);
 
   const dates: { icon: any; label: string; value: string; cls?: string }[] = [
