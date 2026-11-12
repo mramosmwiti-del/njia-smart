@@ -35,6 +35,13 @@ type Message = {
 
 type Profile = { id: string; full_name: string | null; avatar_url: string | null };
 
+// Delete icon on each message. Phones and tablets have no hover, so it is
+// always visible there (with a bigger tap target); on a mouse it stays hidden
+// until you hover the message.
+const DELETE_BTN =
+  "shrink-0 p-2 -my-1 text-muted-foreground hover:text-destructive active:text-destructive " +
+  "opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-visible:opacity-100";
+
 function initials(name?: string | null) {
   if (!name) return "?";
   return name.split(" ").filter(Boolean).slice(0, 2).map((w) => w[0]!.toUpperCase()).join("");
@@ -409,7 +416,7 @@ function ChatPage() {
                 return (
                   <div key={m.id} className={`group flex items-start gap-2 ${mine ? "justify-end" : "justify-start"}`}>
                     {mine && (
-                      <button onClick={() => setDeleteTarget(m)} title="Delete message" className="mt-2 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive">
+                      <button onClick={() => setDeleteTarget(m)} title="Delete message" aria-label="Delete message" className={DELETE_BTN}>
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     )}
@@ -442,7 +449,7 @@ function ChatPage() {
                       </div>
                     </div>
                     {!mine && (
-                      <button onClick={() => setDeleteTarget(m)} title="Delete message" className="mt-2 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive">
+                      <button onClick={() => setDeleteTarget(m)} title="Delete message" aria-label="Delete message" className={DELETE_BTN}>
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     )}
