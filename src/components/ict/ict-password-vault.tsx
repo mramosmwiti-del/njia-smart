@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Eye, EyeOff, LockKeyhole, Plus, Search, Pencil, Trash2, Copy, ShieldCheck, KeyRound, LogOut, RefreshCw } from "lucide-react";
+import { Eye, EyeOff, LockKeyhole, Plus, Search, Pencil, Trash2, Copy, ShieldCheck, KeyRound, LogOut, RefreshCw, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown } from "lucide-react";
 
 type VaultConfig = { id: boolean; salt: string; verification_iv: string; verification_ciphertext: string };
 type VaultRow = { id: string; encrypted_data: string; iv: string; created_at: string; updated_at: string; created_by: string | null; updated_by: string | null };
@@ -155,6 +155,12 @@ export function IctPasswordVault() {
   const [showPassphrase, setShowPassphrase] = useState(false);
   const [visibleFields, setVisibleFields] = useState<Set<string>>(new Set());
   const [visibleFormFields, setVisibleFormFields] = useState<Set<string>>(new Set());
+  // Entry cards start collapsed to a single line (name + category) so a long
+  // vault doesn't force endless scrolling — expand one at a time, or all at once.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  function toggleExpanded(id: string) {
+    setExpanded((prev) => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
+  }
   const [userId, setUserId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -398,6 +404,13 @@ export function IctPasswordVault() {
             <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="h-9 rounded-md border bg-background px-3 text-sm"><option>All categories</option>{CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select>
             <button type="button" onClick={openNewEntry} className="h-9 px-3 rounded-md bg-primary text-primary-foreground text-sm inline-flex items-center justify-center gap-1.5"><Plus className="h-4 w-4" /> Add credential</button>
           </div>
+          {filteredEntries.length > 0 && (
+            <div className="flex justify-end">
+              <button type="button" onClick={() => setExpanded(expanded.size ? new Set() : new Set(filteredEntries.map((e) => e.id!)))} className="text-xs text-muted-foreground hover:text-primary inline-flex items-center gap-1">
+                {expanded.size ? <><ChevronsDownUp className="h-3.5 w-3.5" /> Collapse all</> : <><ChevronsUpDown className="h-3.5 w-3.5" /> Expand all</>}
+              </button>
+            </div>
+          )}
           {formOpen ? (
             <form onSubmit={saveEntry} className="rounded-lg border bg-muted/20 p-4 space-y-3">
               <div className="flex items-center justify-between gap-2"><h3 className="font-semibold">{editing ? "Edit credential" : "New credential"}</h3><button type="button" onClick={() => { setEditing(null); setForm(emptyEntry()); setFormOpen(false); }} className="text-sm text-muted-foreground">Cancel</button></div>
@@ -435,8 +448,14 @@ export function IctPasswordVault() {
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {filteredEntries.map((entry) => {
                 const schema = fieldsFor(entry.category);
+                const isOpen = expanded.has(entry.id!);
                 return <article key={entry.id} className="rounded-lg border p-4 min-w-0 space-y-3">
-                  <div className="flex items-start gap-2"><div className="min-w-0 flex-1"><span className="inline-flex rounded-full bg-primary/10 text-primary px-2 py-0.5 text-[11px]">{entry.category}</span><h3 className="mt-1 font-semibold break-words">{entry.name}</h3></div><button type="button" title="Edit credential" onClick={() => openEditEntry(entry)} className="p-1.5 rounded hover:bg-muted"><Pencil className="h-4 w-4" /></button><button type="button" title="Delete credential" onClick={() => deleteEntry(entry)} className="p-1.5 rounded hover:bg-destructive/10 hover:text-destructive"><Trash2 className="h-4 w-4" /></button></div>
+                  <button type="button" onClick={() => toggleExpanded(entry.id!)} className="w-full flex items-start gap-2 text-left">
+                    {isOpen ? <ChevronDown className="h-4 w-4 mt-1 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 mt-1 shrink-0 text-muted-foreground" />}
+                    <div className="min-w-0 flex-1"><span className="inline-flex rounded-full bg-primary/10 text-primary px-2 py-0.5 text-[11px]">{entry.category}</span><h3 className="mt-1 font-semibold break-words">{entry.name}</h3></div>
+                  </button>
+                  {isOpen && <div className="space-y-3">
+                  <div className="flex justify-end gap-1 -mt-2"><button type="button" title="Edit credential" onClick={() => openEditEntry(entry)} className="p-1.5 rounded hover:bg-muted"><Pencil className="h-4 w-4" /></button><button type="button" title="Delete credential" onClick={() => deleteEntry(entry)} className="p-1.5 rounded hover:bg-destructive/10 hover:text-destructive"><Trash2 className="h-4 w-4" /></button></div>
                   {schema.map((f) => {
                     const value = entry.fields[f.key];
                     if (!value) return null;
@@ -453,6 +472,7 @@ export function IctPasswordVault() {
                   })}
                   {entry.notes && <div className="text-sm"><div className="text-xs text-muted-foreground">Notes</div><p className="whitespace-pre-wrap break-words">{entry.notes}</p></div>}
                   <div className="pt-1 text-[11px] text-muted-foreground">Updated {entry.updated_at ? new Date(entry.updated_at).toLocaleDateString("en-KE", { day: "2-digit", month: "short", year: "numeric" }) : "—"}</div>
+                  </div>}
                 </article>;
               })}
             </div>
