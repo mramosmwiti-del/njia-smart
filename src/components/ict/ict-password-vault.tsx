@@ -5,10 +5,103 @@ import { Eye, EyeOff, LockKeyhole, Plus, Search, Pencil, Trash2, Copy, ShieldChe
 
 type VaultConfig = { id: boolean; salt: string; verification_iv: string; verification_ciphertext: string };
 type VaultRow = { id: string; encrypted_data: string; iv: string; created_at: string; updated_at: string; created_by: string | null; updated_by: string | null };
-type Entry = { id?: string; name: string; category: string; username: string; password: string; url: string; notes: string; updated_at?: string; created_at?: string };
+type FieldType = "text" | "password" | "url";
+type FieldDef = { key: string; label: string; type: FieldType; required?: boolean; placeholder?: string };
+type Entry = { id?: string; name: string; category: string; fields: Record<string, string>; notes: string; updated_at?: string; created_at?: string };
 
-const CATEGORIES = ["Email", "Network / Wi-Fi", "Router / Firewall", "Software / Licences", "Website / Domain", "Cloud / Hosting", "Printer / Copier", "Computer / Device", "Business System", "Other"];
-const EMPTY_ENTRY: Entry = { name: "", category: CATEGORIES[0], username: "", password: "", url: "", notes: "" };
+/**
+ * What a credential needs varies by category — Wi-Fi needs an SSID, email
+ * needs IMAP/SMTP settings, a licence needs a key and seat count, and so on.
+ * Each category below defines its own set of fields; the form, the entry
+ * cards and search/copy/reveal all read from this instead of one fixed
+ * username/password/URL shape.
+ */
+const CATEGORY_FIELDS: Record<string, FieldDef[]> = {
+  "Email": [
+    { key: "email_address", label: "Email address", type: "text", required: true, placeholder: "name@company.co.ke" },
+    { key: "password", label: "Password", type: "password", required: true },
+    { key: "recovery", label: "Recovery email / phone", type: "text" },
+    { key: "server_settings", label: "IMAP / SMTP server settings", type: "text", placeholder: "imap.example.com:993, smtp.example.com:465" },
+  ],
+  "Network / Wi-Fi": [
+    { key: "ssid", label: "SSID (network name)", type: "text", required: true },
+    { key: "password", label: "Wi-Fi password", type: "password", required: true },
+    { key: "admin_url", label: "Router admin URL / IP", type: "url" },
+  ],
+  "Router / Firewall": [
+    { key: "admin_url", label: "Admin URL / IP address", type: "url", required: true },
+    { key: "username", label: "Admin username", type: "text" },
+    { key: "password", label: "Admin password", type: "password", required: true },
+  ],
+  "Software / Licences": [
+    { key: "license_key", label: "Licence key", type: "password", required: true },
+    { key: "username", label: "Account / username", type: "text" },
+    { key: "password", label: "Account password", type: "password" },
+    { key: "seats", label: "Seats / users licensed", type: "text" },
+  ],
+  "Website / Domain": [
+    { key: "registrar_url", label: "Registrar / portal URL", type: "url" },
+    { key: "username", label: "Username", type: "text" },
+    { key: "password", label: "Password", type: "password", required: true },
+    { key: "renewal_date", label: "Renewal date", type: "text", placeholder: "e.g. 2027-03-15" },
+  ],
+  "Cloud / Hosting": [
+    { key: "portal_url", label: "Console / portal URL", type: "url" },
+    { key: "username", label: "Username", type: "text" },
+    { key: "password", label: "Password", type: "password", required: true },
+  ],
+  "Printer / Copier": [
+    { key: "ip_address", label: "IP address / location", type: "text" },
+    { key: "username", label: "Admin username", type: "text" },
+    { key: "password", label: "Admin password", type: "password" },
+  ],
+  "Computer / Device": [
+    { key: "device_location", label: "Device / location", type: "text" },
+    { key: "username", label: "Login username", type: "text" },
+    { key: "password", label: "Login password", type: "password", required: true },
+  ],
+  "Business System": [
+    { key: "system_url", label: "System URL", type: "url" },
+    { key: "username", label: "Username", type: "text" },
+    { key: "password", label: "Password", type: "password", required: true },
+  ],
+  "Other": [
+    { key: "username", label: "Username / account", type: "text" },
+    { key: "password", label: "Password / secret", type: "password", required: true },
+    { key: "url", label: "URL / location", type: "url" },
+  ],
+};
+const CATEGORIES = Object.keys(CATEGORY_FIELDS);
+const fieldsFor = (category: string) => CATEGORY_FIELDS[category] ?? CATEGORY_FIELDS.Other;
+const emptyEntry = (category: string = CATEGORIES[0]): Entry => ({ name: "", category, fields: {}, notes: "" });
+
+/** Carry over values for any field key the new category's schema also has; drop the rest. */
+function remapFields(fields: Record<string, string>, nextCategory: string) {
+  const nextKeys = new Set(fieldsFor(nextCategory).map((f) => f.key));
+  const next: Record<string, string> = {};
+  for (const [k, v] of Object.entries(fields)) if (nextKeys.has(k)) next[k] = v;
+  return next;
+}
+
+/**
+ * Entries saved before per-category fields existed stored a fixed
+ * {username, password, url} shape. Fold that into the new `fields` object
+ * (matched against the category's current schema) so old credentials keep
+ * decrypting and displaying correctly.
+ */
+function normalizeDecoded(raw: any, category: string): Record<string, string> {
+  if (raw && typeof raw === "object" && raw.fields && typeof raw.fields === "object") return raw.fields;
+  const schema = fieldsFor(category);
+  const fields: Record<string, string> = {};
+  if (raw?.username && schema.some((f) => f.key === "username")) fields.username = raw.username;
+  if (raw?.password) fields[schema.find((f) => f.type === "password")?.key ?? "password"] = raw.password;
+  if (raw?.url) {
+    const urlKey = schema.find((f) => f.type === "url")?.key;
+    if (urlKey) fields[urlKey] = raw.url;
+  }
+  return fields;
+}
+
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
@@ -57,11 +150,11 @@ export function IctPasswordVault() {
   const [categoryFilter, setCategoryFilter] = useState("All categories");
   const [editing, setEditing] = useState<Entry | null>(null);
   const [formOpen, setFormOpen] = useState(false);
-  const [form, setForm] = useState<Entry>(EMPTY_ENTRY);
+  const [form, setForm] = useState<Entry>(emptyEntry());
   const [saving, setSaving] = useState(false);
   const [showPassphrase, setShowPassphrase] = useState(false);
-  const [visiblePasswords, setVisiblePasswords] = useState<Set<string>>(new Set());
-  const [showFormPassword, setShowFormPassword] = useState(false);
+  const [visibleFields, setVisibleFields] = useState<Set<string>>(new Set());
+  const [visibleFormFields, setVisibleFormFields] = useState<Set<string>>(new Set());
   const [userId, setUserId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -71,9 +164,9 @@ export function IctPasswordVault() {
       setKey(null);
       setEntries([]);
       setRows([]);
-      setVisiblePasswords(new Set());
+      setVisibleFields(new Set());
       setEditing(null);
-      setForm(EMPTY_ENTRY);
+      setForm(emptyEntry());
       setFormOpen(false);
       toast.info("The password vault was locked after 10 minutes of inactivity.");
     };
@@ -118,12 +211,19 @@ export function IctPasswordVault() {
     }
     const loadedRows = (data ?? []) as VaultRow[];
     try {
-      const decoded = await Promise.all(loadedRows.map(async (row) => ({
-        ...(JSON.parse(await decryptText(activeKey, row.iv, row.encrypted_data)) as Omit<Entry, "id">),
-        id: row.id,
-        created_at: row.created_at,
-        updated_at: row.updated_at,
-      })));
+      const decoded = await Promise.all(loadedRows.map(async (row) => {
+        const raw = JSON.parse(await decryptText(activeKey, row.iv, row.encrypted_data));
+        const category = raw.category && CATEGORY_FIELDS[raw.category] ? raw.category : "Other";
+        return {
+          name: raw.name ?? "",
+          category,
+          fields: normalizeDecoded(raw, category),
+          notes: raw.notes ?? "",
+          id: row.id,
+          created_at: row.created_at,
+          updated_at: row.updated_at,
+        } as Entry;
+      }));
       setRows(loadedRows);
       setEntries(decoded);
       return true;
@@ -193,25 +293,42 @@ export function IctPasswordVault() {
     setKey(null);
     setEntries([]);
     setRows([]);
-    setVisiblePasswords(new Set());
+    setVisibleFields(new Set());
     setEditing(null);
-    setForm(EMPTY_ENTRY);
+    setForm(emptyEntry());
     setFormOpen(false);
     setPassphrase("");
     setConfirmPassphrase("");
   }
 
-  function openNewEntry() { setEditing(null); setForm(EMPTY_ENTRY); setShowFormPassword(false); setFormOpen(true); }
-  function openEditEntry(entry: Entry) { setEditing(entry); setForm({ ...EMPTY_ENTRY, ...entry }); setShowFormPassword(false); setFormOpen(true); }
+  function openNewEntry() { setEditing(null); setForm(emptyEntry()); setVisibleFormFields(new Set()); setFormOpen(true); }
+  function openEditEntry(entry: Entry) { setEditing(entry); setForm({ ...entry, fields: { ...entry.fields } }); setVisibleFormFields(new Set()); setFormOpen(true); }
+
+  function setFormCategory(category: string) {
+    setForm((f) => ({ ...f, category, fields: remapFields(f.fields, category) }));
+    setVisibleFormFields(new Set());
+  }
+  function setFormField(key: string, value: string) {
+    setForm((f) => ({ ...f, fields: { ...f.fields, [key]: value } }));
+  }
 
   async function saveEntry(event: React.FormEvent) {
     event.preventDefault();
-    if (!key || !form.name.trim() || !form.password) { toast.error("A system name and password are required."); return; }
+    const schema = fieldsFor(form.category);
+    const missingRequired = schema.filter((f) => f.required && !(form.fields[f.key] ?? "").trim());
+    if (!key || !form.name.trim() || missingRequired.length) {
+      toast.error(`A system name and ${missingRequired[0]?.label.toLowerCase() ?? "all required fields"} are required.`);
+      return;
+    }
     setSaving(true);
     try {
+      const cleanedFields: Record<string, string> = {};
+      for (const f of schema) {
+        const v = (form.fields[f.key] ?? "").trim();
+        if (v) cleanedFields[f.key] = v;
+      }
       const encrypted = await encryptText(key, JSON.stringify({
-        name: form.name.trim(), category: form.category, username: form.username.trim(),
-        password: form.password, url: form.url.trim(), notes: form.notes.trim(),
+        name: form.name.trim(), category: form.category, fields: cleanedFields, notes: form.notes.trim(),
       }));
       const payload = { encrypted_data: encrypted.ciphertext, iv: encrypted.iv, updated_by: userId, updated_at: new Date().toISOString() };
       const query = supabase.from("ict_password_vault" as any) as any;
@@ -221,7 +338,7 @@ export function IctPasswordVault() {
       if (result.error) throw result.error;
       toast.success(editing ? "Credential updated." : "Credential saved.");
       setEditing(null);
-      setForm(EMPTY_ENTRY);
+      setForm(emptyEntry());
       setFormOpen(false);
       await loadEntries(key);
     } catch (error: any) {
@@ -245,7 +362,8 @@ export function IctPasswordVault() {
   const filteredEntries = useMemo(() => entries.filter((entry) => {
     const matchesCategory = categoryFilter === "All categories" || entry.category === categoryFilter;
     const term = search.trim().toLowerCase();
-    return matchesCategory && (!term || [entry.name, entry.category, entry.username, entry.url, entry.notes].some((v) => v.toLowerCase().includes(term)));
+    const haystack = [entry.name, entry.category, entry.notes, ...Object.values(entry.fields)];
+    return matchesCategory && (!term || haystack.some((v) => (v ?? "").toLowerCase().includes(term)));
   }), [entries, categoryFilter, search]);
 
   if (configLoading) return <section className="rounded-lg border bg-card p-5 text-sm text-muted-foreground">Loading password vault…</section>;
@@ -282,13 +400,29 @@ export function IctPasswordVault() {
           </div>
           {formOpen ? (
             <form onSubmit={saveEntry} className="rounded-lg border bg-muted/20 p-4 space-y-3">
-              <div className="flex items-center justify-between gap-2"><h3 className="font-semibold">{editing ? "Edit credential" : "New credential"}</h3><button type="button" onClick={() => { setEditing(null); setForm(EMPTY_ENTRY); setFormOpen(false); }} className="text-sm text-muted-foreground">Cancel</button></div>
+              <div className="flex items-center justify-between gap-2"><h3 className="font-semibold">{editing ? "Edit credential" : "New credential"}</h3><button type="button" onClick={() => { setEditing(null); setForm(emptyEntry()); setFormOpen(false); }} className="text-sm text-muted-foreground">Cancel</button></div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="text-sm font-medium">System / service name *<input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Office Wi-Fi, domain registrar" className="mt-1 h-9 w-full rounded-md border bg-background px-3 font-normal" /></label>
-                <label className="text-sm font-medium">Category<select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className="mt-1 h-9 w-full rounded-md border bg-background px-3 font-normal">{CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select></label>
-                <label className="text-sm font-medium">Username / account<input autoComplete="off" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} placeholder="Account username or email" className="mt-1 h-9 w-full rounded-md border bg-background px-3 font-normal" /></label>
-                <label className="text-sm font-medium">Password / secret *<div className="mt-1 flex gap-2"><input required autoComplete="new-password" type={showFormPassword ? "text" : "password"} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} className="h-9 w-full min-w-0 rounded-md border bg-background px-3 font-normal" placeholder="Password or secret key" /><button type="button" onClick={() => setShowFormPassword((v) => !v)} className="h-9 w-9 shrink-0 rounded-md border inline-flex items-center justify-center" aria-label={showFormPassword ? "Hide password" : "Show password"}>{showFormPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button></div></label>
-                <label className="text-sm font-medium sm:col-span-2">Login URL / location<input autoComplete="off" value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder="Website URL, device location or admin portal" className="mt-1 h-9 w-full rounded-md border bg-background px-3 font-normal" /></label>
+                <label className="text-sm font-medium">Category<select value={form.category} onChange={(e) => setFormCategory(e.target.value)} className="mt-1 h-9 w-full rounded-md border bg-background px-3 font-normal">{CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select></label>
+                {fieldsFor(form.category).map((f) => {
+                  const value = form.fields[f.key] ?? "";
+                  if (f.type === "password") {
+                    const shown = visibleFormFields.has(f.key);
+                    return (
+                      <label key={f.key} className="text-sm font-medium">{f.label}{f.required ? " *" : ""}
+                        <div className="mt-1 flex gap-2">
+                          <input required={f.required} autoComplete="new-password" type={shown ? "text" : "password"} value={value} onChange={(e) => setFormField(f.key, e.target.value)} placeholder={f.placeholder} className="h-9 w-full min-w-0 rounded-md border bg-background px-3 font-normal" />
+                          <button type="button" onClick={() => setVisibleFormFields((prev) => { const next = new Set(prev); shown ? next.delete(f.key) : next.add(f.key); return next; })} className="h-9 w-9 shrink-0 rounded-md border inline-flex items-center justify-center" aria-label={shown ? `Hide ${f.label}` : `Show ${f.label}`}>{shown ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button>
+                        </div>
+                      </label>
+                    );
+                  }
+                  return (
+                    <label key={f.key} className="text-sm font-medium">{f.label}{f.required ? " *" : ""}
+                      <input required={f.required} autoComplete="off" type={f.type === "url" ? "url" : "text"} value={value} onChange={(e) => setFormField(f.key, e.target.value)} placeholder={f.placeholder} className="mt-1 h-9 w-full rounded-md border bg-background px-3 font-normal" />
+                    </label>
+                  );
+                })}
                 <label className="text-sm font-medium sm:col-span-2">Notes / recovery instructions<textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={2} placeholder="Non-secret context, owner, renewal date, recovery instructions…" className="mt-1 w-full rounded-md border bg-background px-3 py-2 font-normal" /></label>
               </div>
               <button disabled={saving} className="h-9 px-4 rounded-md bg-primary text-primary-foreground text-sm disabled:opacity-50">{saving ? "Saving…" : editing ? "Save changes" : "Save credential"}</button>
@@ -300,12 +434,23 @@ export function IctPasswordVault() {
           ) : (
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {filteredEntries.map((entry) => {
-                const showPassword = visiblePasswords.has(entry.id ?? "");
+                const schema = fieldsFor(entry.category);
                 return <article key={entry.id} className="rounded-lg border p-4 min-w-0 space-y-3">
                   <div className="flex items-start gap-2"><div className="min-w-0 flex-1"><span className="inline-flex rounded-full bg-primary/10 text-primary px-2 py-0.5 text-[11px]">{entry.category}</span><h3 className="mt-1 font-semibold break-words">{entry.name}</h3></div><button type="button" title="Edit credential" onClick={() => openEditEntry(entry)} className="p-1.5 rounded hover:bg-muted"><Pencil className="h-4 w-4" /></button><button type="button" title="Delete credential" onClick={() => deleteEntry(entry)} className="p-1.5 rounded hover:bg-destructive/10 hover:text-destructive"><Trash2 className="h-4 w-4" /></button></div>
-                  {entry.username && <div className="text-sm"><div className="text-xs text-muted-foreground">Username / account</div><div className="flex items-center gap-2"><span className="min-w-0 flex-1 break-all">{entry.username}</span><button type="button" title="Copy username" onClick={() => void copyValue(entry.username, "Username")} className="p-1 text-muted-foreground hover:text-primary"><Copy className="h-3.5 w-3.5" /></button></div></div>}
-                  <div className="text-sm"><div className="text-xs text-muted-foreground">Password / secret</div><div className="flex items-center gap-2"><code className="min-w-0 flex-1 break-all font-mono">{showPassword ? entry.password : "••••••••••••"}</code><button type="button" title={showPassword ? "Hide password" : "Reveal password"} onClick={() => setVisiblePasswords((prev) => { const next = new Set(prev); if (showPassword) next.delete(entry.id ?? ""); else next.add(entry.id ?? ""); return next; })} className="p-1 text-muted-foreground hover:text-primary">{showPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}</button><button type="button" title="Copy password" onClick={() => void copyValue(entry.password, "Password")} className="p-1 text-muted-foreground hover:text-primary"><Copy className="h-3.5 w-3.5" /></button></div></div>
-                  {entry.url && <div className="text-sm min-w-0"><div className="text-xs text-muted-foreground">URL / location</div><span className="break-all">{entry.url}</span></div>}
+                  {schema.map((f) => {
+                    const value = entry.fields[f.key];
+                    if (!value) return null;
+                    const fieldId = `${entry.id}:${f.key}`;
+                    if (f.type === "password") {
+                      const shown = visibleFields.has(fieldId);
+                      return (
+                        <div key={f.key} className="text-sm"><div className="text-xs text-muted-foreground">{f.label}</div><div className="flex items-center gap-2"><code className="min-w-0 flex-1 break-all font-mono">{shown ? value : "••••••••••••"}</code><button type="button" title={shown ? `Hide ${f.label}` : `Reveal ${f.label}`} onClick={() => setVisibleFields((prev) => { const next = new Set(prev); shown ? next.delete(fieldId) : next.add(fieldId); return next; })} className="p-1 text-muted-foreground hover:text-primary">{shown ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}</button><button type="button" title={`Copy ${f.label}`} onClick={() => void copyValue(value, f.label)} className="p-1 text-muted-foreground hover:text-primary"><Copy className="h-3.5 w-3.5" /></button></div></div>
+                      );
+                    }
+                    return (
+                      <div key={f.key} className="text-sm min-w-0"><div className="text-xs text-muted-foreground">{f.label}</div><div className="flex items-center gap-2"><span className="min-w-0 flex-1 break-all">{value}</span><button type="button" title={`Copy ${f.label}`} onClick={() => void copyValue(value, f.label)} className="p-1 text-muted-foreground hover:text-primary"><Copy className="h-3.5 w-3.5" /></button></div></div>
+                    );
+                  })}
                   {entry.notes && <div className="text-sm"><div className="text-xs text-muted-foreground">Notes</div><p className="whitespace-pre-wrap break-words">{entry.notes}</p></div>}
                   <div className="pt-1 text-[11px] text-muted-foreground">Updated {entry.updated_at ? new Date(entry.updated_at).toLocaleDateString("en-KE", { day: "2-digit", month: "short", year: "numeric" }) : "—"}</div>
                 </article>;
